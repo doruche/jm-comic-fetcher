@@ -1,6 +1,8 @@
 import asyncio
 import json
 import logging
+import os
+import re
 import sys
 from collections import Counter
 from dataclasses import asdict
@@ -14,14 +16,22 @@ logger = logging.getLogger(__name__)
 
 
 async def run_worker(request: Request, config: Config, directory: Path) -> dict:
+    # AstrBot installs plugin dependencies into a target directory and adds it
+    # to sys.path. A fresh interpreter does not inherit those runtime additions.
+    # Resolve relative entries before changing the child's working directory.
+    environment = dict(os.environ)
+    environment["PYTHONPATH"] = os.pathsep.join(
+        str(Path(entry).resolve()) for entry in sys.path if isinstance(entry, str)
+    )
     process = await asyncio.create_subprocess_exec(
         sys.executable,
         "-m",
         "jm_comic_fetcher.worker",
         cwd=Path(__file__).resolve().parent.parent,
+        env=environment,
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.PIPE,
     )
     try:
         payload = {
@@ -29,9 +39,17 @@ async def run_worker(request: Request, config: Config, directory: Path) -> dict:
             "config": config.worker_config(),
             "directory": str(directory),
         }
-        output, _ = await process.communicate(json.dumps(payload).encode())
+        output, errors = await process.communicate(json.dumps(payload).encode())
         if process.returncode:
-            raise UserError("Worker exited unexpectedly; no archive was sent.")
+            # Show only a safe module identifier, never raw upstream exceptions
+            # or environment values that might include credentials.
+            missing = re.search(rb"ModuleNotFoundError: No module named '([A-Za-z0-9_.]+)'", errors)
+            detail = (
+                f"missing dependency {missing[1].decode('ascii')}"
+                if missing
+                else f"exit code {process.returncode}"
+            )
+            raise UserError(f"Worker could not complete ({detail}); no archive was sent.")
         try:
             return json.loads(output)
         except (ValueError, UnicodeError) as exc:

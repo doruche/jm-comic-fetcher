@@ -29,3 +29,22 @@ Pending recipient-side acceptance: confirm private and group file delivery,
 open ZIP/PDF on the actual phone, and visually verify decoded page order/content.
 No automated test sends QQ messages. These checks cannot be inferred from a
 successful local download or adapter source inspection.
+
+## Container recreation regression
+
+A user acceptance task failed after the container was recreated at 22:30.
+Direct reproduction inside that container showed `ModuleNotFoundError: jmcomic`:
+packages previously installed into the old container layer were gone, while the
+plugin's lightweight entry point did not trigger AstrBot's import-time recovery.
+
+The entry point now validates the complete worker import graph so AstrBot can
+install missing requirements. Workers also inherit resolved parent Python search
+paths, covering installations that use an additional plugin dependency directory.
+Unexpected worker exits expose only a missing-module identifier or exit code,
+not raw stderr or credentials.
+
+After the fix, 38 offline tests and Ruff passed; an independent subagent verified
+the import-recovery contract and found no additional issues. Regression tests
+include a real child interpreter with dependencies available only through parent
+runtime path additions. Container startup logs confirmed automatic installation
+was triggered by the missing worker dependency.

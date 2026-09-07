@@ -9,9 +9,12 @@ from astrbot.core.star.filter.command import GreedyStr
 
 from .jm_comic_fetcher.commands import HELP, parse_command, split_text
 from .jm_comic_fetcher.config import Config
+from .jm_comic_fetcher.dependencies import check_worker_dependencies
 from .jm_comic_fetcher.models import UserError
 from .jm_comic_fetcher.storage import Storage
 from .jm_comic_fetcher.tasks import TaskManager
+
+check_worker_dependencies()
 
 
 class JMComicFetcher(Star):

@@ -74,6 +74,12 @@ Copy the plugin's runtime files into AstrBot's plugin directory using the name
 `astrbot_plugin_jm_comic_fetcher` from `metadata.yaml`. Keep `main.py`, metadata,
 `_conf_schema.json`, `requirements.txt` and `jm_comic_fetcher/` together. Install
 `requirements.txt` in **AstrBot's Python environment**, then reload the plugin.
+The entry point checks worker imports so AstrBot can automatically install missing
+dependencies even when no command has run yet. Recreating a container removes
+packages manually installed in its old writable layer; keep `requirements.txt`
+with the deployed plugin for recovery, or bake dependencies into a derived image.
+Worker processes inherit the parent's Python search paths, including any extra
+plugin dependency directories configured by AstrBot.
 No editable installation of this project is needed. Python 3.12 or newer and an
 AstrBot version supporting `GreedyStr` command arguments are required.
 
