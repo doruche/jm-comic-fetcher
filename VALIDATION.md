@@ -13,6 +13,8 @@ Checked on 2026-09-07 against the local Python 3.12.14 AstrBot/NapCat deployment
 - Real range download of chapters 1–2 completed: 21 + 18 = 39 PDF pages.
   The ordinary ZIP was 41,556,664 bytes and contained `001.pdf`, `002.pdf`,
   `chapters.txt`. ZIP integrity and PDF page counts passed local validation.
+- Real cover download succeeded; its ZIP contained the original `cover.webp`
+  and passed ZIP integrity verification.
 - Runtime dependency installation was checked against the existing container:
   `uv pip check` reported all 172 installed packages compatible. The install
   upgraded anyio 4.14.2 to 4.15.1 and lxml 6.1.2 to 6.1.3 inside the container.
