@@ -98,3 +98,52 @@ def test_cleanup_owns_only_expired_job_directories(tmp_path):
     assert not expired.exists()
     assert active.exists() and recent.exists() and unknown.exists()
     assert (outside / "keep").read_text() == "keep"
+
+
+def test_publish_exposes_only_archive_and_cleanup_removes_link(tmp_path):
+    storage = Storage(tmp_path / "storage")
+    job = storage.create(Config())
+    archive = job / "result.zip"
+    archive.write_bytes(b"PK test archive")
+    old_umask = os.umask(0o077)
+    try:
+        delivery = storage.publish(archive)
+    finally:
+        os.umask(old_umask)
+    assert job.stat().st_mode & 0o777 == 0o700
+    assert storage.deliveries.stat().st_mode & 0o777 == 0o711
+    assert delivery.parent.stat().st_mode & 0o777 == 0o711
+    assert delivery.stat().st_mode & 0o777 == 0o644
+    assert delivery.samefile(archive) and delivery.read_bytes() == b"PK test archive"
+    assert storage.publish(archive) == delivery
+    (job / "state.json").write_text(
+        json.dumps(
+            {
+                "finished_at": time.time() - 7200,
+                "success": True,
+            }
+        )
+    )
+    assert storage.cleanup(Config(), {job}) == 0
+    assert delivery.is_file()
+    assert storage.cleanup(Config(), set()) == 1
+    assert not delivery.parent.exists() and not job.exists()
+
+
+def test_publish_rejects_symlinks_and_non_job_files(tmp_path):
+    storage = Storage(tmp_path / "storage")
+    outside = tmp_path / "outside.zip"
+    outside.write_bytes(b"keep")
+    with pytest.raises(UserError):
+        storage.publish(outside)
+    job = storage.create(Config())
+    archive = job / "archive.zip"
+    archive.symlink_to(outside)
+    with pytest.raises(UserError):
+        storage.publish(archive)
+    archive.unlink()
+    archive.write_bytes(b"PK archive")
+    (storage.deliveries / job.name).symlink_to(tmp_path, target_is_directory=True)
+    with pytest.raises(UserError):
+        storage.publish(archive)
+    assert outside.read_bytes() == b"keep"

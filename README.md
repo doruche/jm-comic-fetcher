@@ -93,6 +93,14 @@ at the **same absolute path**, normally by sharing `/AstrBot/data`. Group and
 private file messages use AstrBot's file-message adapter. Actual QQ size and
 upload restrictions may differ from the configured local limit.
 
+AstrBot and NapCat may run under different Unix users. Completed ZIPs are
+published under `<plugin-data>/deliveries/<task-id>/` as readable files (0644),
+with traversal-only delivery directories (0711). Only the final archive is
+exposed; working job directories remain private (0700). Both copies are hard
+links to the same bytes and expire together under the configured retention.
+The shared mount's parent directories must also allow the NapCat user to traverse
+them; no QQ administrator permission is needed to solve a filesystem EACCES error.
+
 ## Configuration
 
 Configure the plugin in AstrBot WebUI. `_conf_schema.json` declares defaults; the

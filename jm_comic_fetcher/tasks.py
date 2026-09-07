@@ -125,7 +125,7 @@ class TaskManager:
                         archive = directory / result["archive"]
                         if archive.resolve().parent != directory or not archive.is_file():
                             raise UserError("Worker produced an invalid archive path.")
-                        await deliver(archive)
+                        await deliver(self.storage.publish(archive))
                     await notify(result["text"])
                     success = True
         except TimeoutError:

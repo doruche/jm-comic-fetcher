@@ -56,3 +56,21 @@ The deployed `run_worker` downloaded chapter 1 of `1451879`, produced a 21-page
 PDF in a 22,640,245-byte ZIP, and passed ZIP integrity/PDF page-count checks.
 This verification used the container's Python and deployed files, not the host
 development virtual environment. No QQ message was sent by the check.
+
+## Cross-container archive permissions
+
+QQ acceptance task `80d1e093` generated its archive successfully, but NapCat
+reported `EACCES` opening it: AstrBot ran as root, QQ/NapCat as UID/GID 1000,
+and the task directory was intentionally 0700. This was a filesystem permission
+failure, not a QQ allowlist or group-administrator requirement.
+
+Completed archives are now hard-linked into traversal-only delivery directories
+(0711) with readable final ZIPs (0644); job working directories remain 0700.
+Expiration cleanup removes both links. Regression tests cover restrictive umask,
+publication, symlink rejection, repeat publication and active/expired cleanup.
+40 tests and Ruff passed; independent subagent review found no further issues.
+
+Verified against the actual failed archive: `docker exec --user 1000:1000 napcat`
+read ZIP magic `50 4b 03 04` from the new delivery path, while confirming the
+original job directory was still inaccessible. No QQ send was made by this check;
+recipient-side upload acceptance remains to be confirmed.
