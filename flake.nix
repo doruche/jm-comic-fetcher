@@ -1,5 +1,5 @@
 {
-  description = "JM Comic Fetcher development shell (uv only)";
+  description = "JM Comic Fetcher development shell (uv and act)";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
@@ -20,7 +20,10 @@
         in
         {
           default = pkgs.mkShell {
-            packages = [ pkgs.uv ];
+            packages = [
+              pkgs.uv
+              pkgs.act
+            ];
             UV_PYTHON_PREFERENCE = "only-managed";
           };
         }

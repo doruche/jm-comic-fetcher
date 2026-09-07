@@ -30,7 +30,9 @@ async def test_queue_and_user_limits_and_shutdown(tmp_path, monkeypatch):
             running -= 1
 
     monkeypatch.setattr(tasks, "run_worker", worker)
-    manager = tasks.TaskManager(replace(Config(), max_queued=1), Storage(tmp_path))
+    manager = tasks.TaskManager(
+        replace(Config(), max_queued=1), Storage(tmp_path), Path(sys.executable)
+    )
     await manager.start()
     notify, deliver = AsyncMock(), AsyncMock()
     await manager.submit("1", Request("fetch", "123"), notify, deliver)
@@ -58,7 +60,7 @@ async def test_timeout_cancels_worker_without_upload(tmp_path, monkeypatch):
 
     monkeypatch.setattr(tasks, "run_worker", worker)
     config = replace(Config(), timeout_seconds=0.02)
-    manager = tasks.TaskManager(config, Storage(tmp_path))
+    manager = tasks.TaskManager(config, Storage(tmp_path), Path(sys.executable))
     notify, deliver = AsyncMock(), AsyncMock()
     await manager.submit("1", Request("fetch", "123"), notify, deliver)
     await asyncio.gather(*manager.tasks)
@@ -72,7 +74,8 @@ async def test_timeout_cancels_worker_without_upload(tmp_path, monkeypatch):
 async def test_subprocess_is_reaped_on_cancellation(tmp_path, monkeypatch):
     process = AsyncMock()
     process.returncode = None
-    process.kill = Mock()
+    kill = Mock()
+    monkeypatch.setattr(tasks.os, "killpg", kill)
     entered = asyncio.Event()
 
     async def communicate(*args):
@@ -81,12 +84,14 @@ async def test_subprocess_is_reaped_on_cancellation(tmp_path, monkeypatch):
 
     process.communicate.side_effect = communicate
     monkeypatch.setattr(asyncio, "create_subprocess_exec", AsyncMock(return_value=process))
-    task = asyncio.create_task(tasks.run_worker(Request("fetch", "123"), Config(), tmp_path))
+    task = asyncio.create_task(
+        tasks.run_worker(Request("fetch", "123"), Config(), tmp_path, Path(sys.executable))
+    )
     await entered.wait()
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
-    process.kill.assert_called_once()
+    kill.assert_called_once()
     process.wait.assert_awaited_once()
 
 
@@ -97,7 +102,7 @@ async def test_close_cancels_acceptance_notification(tmp_path):
         entered.set()
         await asyncio.Event().wait()
 
-    manager = tasks.TaskManager(Config(), Storage(tmp_path))
+    manager = tasks.TaskManager(Config(), Storage(tmp_path), Path(sys.executable))
     await manager.submit("1", Request("brief", "123"), notify, AsyncMock())
     await entered.wait()
     await manager.close()
@@ -105,42 +110,34 @@ async def test_close_cancels_acceptance_notification(tmp_path):
 
 
 async def test_close_before_first_task_step(tmp_path):
-    manager = tasks.TaskManager(Config(), Storage(tmp_path))
+    manager = tasks.TaskManager(Config(), Storage(tmp_path), Path(sys.executable))
     await manager.submit("1", Request("brief", "123"), AsyncMock(), AsyncMock())
     await manager.close()
     assert manager.pending == 0 and not manager.active
 
 
-def test_worker_inherits_parent_only_dependencies(tmp_path):
-    # -S skips site initialization in the parent; explicitly add its dependency
-    # directory without exporting PYTHONPATH. The child must inherit runtime
-    # sys.path additions, like an AstrBot plugin dependency target.
+def test_worker_does_not_inherit_parent_dependencies(tmp_path):
+    poison = tmp_path / "poison"
+    poison.mkdir()
+    (poison / "jmcomic.py").write_text("raise RuntimeError('host package leaked')")
     script = """
 import asyncio, sys
 from dataclasses import replace
 from pathlib import Path
-sys.path.extend(sys.argv[2:])
+sys.path.insert(0, sys.argv[3])
 from jm_comic_fetcher.tasks import run_worker
 from jm_comic_fetcher.config import Config
 from jm_comic_fetcher.models import Request
 result = asyncio.run(run_worker(
-    Request('brief', '123'), replace(Config(), max_running=0), Path(sys.argv[1])
+    Request('brief', '123'), replace(Config(), max_running=0),
+    Path(sys.argv[1]), Path(sys.argv[2])
 ))
 assert result == {'error': 'Config max_running must be an integer >= 1.'}, result
+assert 'jmcomic' not in sys.modules
 """
-    environment = dict(os.environ)
-    environment.pop("PYTHONPATH", None)
-    # A base interpreter has no project's venv; only the parent gets its paths.
-    interpreter = getattr(sys, "_base_executable", sys.executable)
+    environment = dict(os.environ, PYTHONPATH=str(poison))
     result = subprocess.run(
-        [
-            interpreter,
-            "-S",
-            "-c",
-            script,
-            str(tmp_path),
-            *[str(Path(p).resolve()) for p in sys.path if isinstance(p, str)],
-        ],
+        [sys.executable, "-c", script, str(tmp_path), sys.executable, str(poison)],
         env=environment,
         text=True,
         capture_output=True,
@@ -158,19 +155,8 @@ async def test_missing_dependency_error_is_actionable_and_redacted(tmp_path, mon
     )
     monkeypatch.setattr(asyncio, "create_subprocess_exec", AsyncMock(return_value=process))
     with pytest.raises(UserError) as exc:
-        await tasks.run_worker(Request("fetch", "123"), Config(), tmp_path)
+        await tasks.run_worker(Request("fetch", "123"), Config(), tmp_path, Path(sys.executable))
     assert (
         str(exc.value)
         == "Worker could not complete (missing dependency jmcomic); no archive was sent."
     )
-
-
-def test_dependency_preflight_propagates_missing_import(monkeypatch):
-    from jm_comic_fetcher import dependencies
-
-    loader = Mock(side_effect=ModuleNotFoundError("No module named 'jmcomic'", name="jmcomic"))
-    monkeypatch.setattr(dependencies, "import_module", loader)
-    with pytest.raises(ModuleNotFoundError) as exc:
-        dependencies.check_worker_dependencies()
-    assert exc.value.name == "jmcomic"
-    loader.assert_called_once_with("jm_comic_fetcher.worker")

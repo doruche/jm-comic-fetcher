@@ -7,23 +7,24 @@ from astrbot.api.message_components import File, Plain
 from astrbot.api.star import Context, Star, StarTools
 from astrbot.core.star.filter.command import GreedyStr
 
-from .jm_comic_fetcher.commands import HELP, parse_command, split_text
+from .jm_comic_fetcher.commands import HELP, parse_command, split_text, version_info
 from .jm_comic_fetcher.config import Config
-from .jm_comic_fetcher.dependencies import check_worker_dependencies
 from .jm_comic_fetcher.models import UserError
+from .jm_comic_fetcher.runtime import Runtime
 from .jm_comic_fetcher.storage import Storage
 from .jm_comic_fetcher.tasks import TaskManager
-
-check_worker_dependencies()
 
 
 class JMComicFetcher(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
         self.settings = Config.from_mapping(config)
-        self.manager = TaskManager(self.settings, Storage(StarTools.get_data_dir()))
+        storage = Storage(StarTools.get_data_dir())
+        self.runtime = Runtime(storage.root)
+        self.manager = TaskManager(self.settings, storage, self.runtime.python)
 
     async def initialize(self):
+        await self.runtime.prepare()
         await self.manager.start()
 
     @filter.command("jmcomic")
@@ -34,6 +35,9 @@ class JMComicFetcher(Star):
             request = parse_command(str(args))
             if request is None:
                 yield event.plain_result(HELP)
+                return
+            if request.action == "version":
+                yield event.plain_result(version_info())
                 return
             self.settings.authorize(str(event.get_sender_id()), str(event.get_group_id() or ""))
             if event.get_platform_name() != "aiocqhttp":

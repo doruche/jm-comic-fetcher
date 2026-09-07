@@ -1,10 +1,13 @@
 import re
 import shlex
+import tomllib
+from pathlib import Path
 
 from .models import Request, UserError
 
 HELP = """JM Comic Fetcher
 /jmcomic help
+/jmcomic version
 /jmcomic inspect <comic_id> <brief|cover>
 /jmcomic fetch <comic_id> [chapter]
 /jmcomic fetch <comic_id> --from <start> --to <end>
@@ -25,8 +28,8 @@ def parse_command(raw: str) -> Request | None:
         raise UserError("Invalid quoting. Use /jmcomic help.") from exc
     if not args or args in (["help"], ["--help"], ["-h"]):
         return None
-    if args == ["random"]:
-        return Request("random", "")
+    if args in (["random"], ["version"]):
+        return Request(args[0], "")
     if len(args) < 2 or not re.fullmatch(r"[1-9][0-9]{0,17}", args[1]):
         raise UserError("A comic ID must be a positive integer. Use /jmcomic help.")
     action, comic_id, *rest = args
@@ -50,6 +53,19 @@ def parse_command(raw: str) -> Request | None:
     raise UserError(
         "Use a non-negative chapter number OR --from <start> --to <end>. "
         "Range endpoints must be positive integers with start <= end."
+    )
+
+
+def version_info() -> str:
+    """Read release information from the shipped project manifest."""
+    with (Path(__file__).resolve().parent.parent / "pyproject.toml").open("rb") as source:
+        project = tomllib.load(source)["project"]
+    authors = ", ".join(author["name"] for author in project["authors"])
+    return (
+        f"JM Comic Fetcher v{project['version']}\n"
+        f"{project['description']}\n"
+        f"Author: {authors}\n"
+        f"License: {project['license']}"
     )
 
 

@@ -2,18 +2,19 @@
 
 The AstrBot entry point handles commands, access control, scheduling and delivery.
 Heavy network and archive work runs in child Python processes so timeouts and
-plugin unload can stop it. Workers inherit the parent's dependency search paths.
+plugin unload can stop it. Each task launches the Python executable of a private
+virtual environment; stdin/stdout carry one JSON request and result.
 
-Runtime requirements are generated from `project.dependencies` by a standard
-library TOML reader. AstrBot installs missing dependencies through its native
-requirements mechanism. The entry point validates the worker import graph to
-trigger that mechanism before accepting commands. It does not install packages
-or reload shared modules itself.
+The entry point, scheduler and runtime setup use only AstrBot APIs and the standard
+library. Worker-only dependencies are never imported by the host. Workers use
+Python isolated mode, adding only the plugin source root explicitly; host Python
+search paths and user site-packages are excluded.
 
-The developer's `uv.lock` is separate from the plugin's host-facing requirements:
-it locks a standalone environment, whereas requirements preserve the declared
-compatibility ranges. Sharing a Python environment still requires compatibility
-testing when dependencies or the host image change.
+`pyproject.toml` declares dependencies and the official PyPI index. `uv.lock` pins
+the same dependency graph for development and production. Initialization invokes
+uv as an external tool to synchronize production packages into a private data
+directory, without changing AstrBot packages or installer settings. See
+[Installation](installation.md) for prerequisites and environment recovery.
 
 All content commands share a bounded queue. State is not resumed after reload.
 Failed/missing pages fail the task without sending a partial archive. There is

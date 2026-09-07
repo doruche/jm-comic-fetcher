@@ -23,6 +23,8 @@ def test_selection(args, selected):
 @pytest.mark.parametrize(
     "args",
     [
+        "version extra",
+        "version 123",
         "fetch",
         "fetch ../a",
         "fetch 123 -1",
@@ -76,3 +78,21 @@ def test_schema_defaults_match_runtime():
     schema = json.loads((Path(__file__).resolve().parents[1] / "_conf_schema.json").read_text())
     assert set(schema) == set(asdict(Config()))
     assert Config.from_mapping({k: v["default"] for k, v in schema.items()}) == Config()
+
+
+def test_version_command_and_release_information():
+    import tomllib
+    from pathlib import Path
+
+    from jm_comic_fetcher.commands import version_info
+
+    request = parse_command("version")
+    assert request.action == "version" and request.comic_id == ""
+    root = Path(__file__).resolve().parents[1]
+    project = tomllib.loads((root / "pyproject.toml").read_text())["project"]
+    result = version_info()
+    assert f"v{project['version']}" in result
+    assert project["description"] in result
+    assert "Author: doruche" in result
+    assert result.endswith("License: MIT")
+    assert "/jmcomic version" in HELP

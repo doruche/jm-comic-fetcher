@@ -1,7 +1,8 @@
 [project]
 name = "jm-comic-fetcher"
 version = "0.1.0"
-description = "A personal AstrBot comic archive plugin"
+description = "Query comic metadata and download selected chapters as PDF files in ZIP archives."
+authors = [{ name = "doruche" }]
 requires-python = ">=3.12,<3.15"
 license = "MIT"
 dependencies = [
@@ -16,6 +17,11 @@ dev = ["pytest>=8,<10", "pytest-asyncio>=1,<2", "ruff>=0.12,<1"]
 
 [tool.uv]
 package = false
+
+[[tool.uv.index]]
+name = "pypi"
+url = "https://pypi.org/simple"
+default = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

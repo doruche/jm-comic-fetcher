@@ -4,7 +4,7 @@ Configure the plugin in AstrBot WebUI. `_conf_schema.json` declares defaults; th
 actual JSON configuration is maintained by AstrBot outside the source tree.
 Save and reload the plugin to apply changes. Each loaded instance uses immutable
 settings; running/queued jobs are cancelled on reload rather than silently changing
-their limits. Empty allowlists deny all content commands; help remains available.
+their limits. Empty allowlists deny all content commands; help and version remain available.
 
 | Setting | Default | Meaning |
 | --- | --- | --- |

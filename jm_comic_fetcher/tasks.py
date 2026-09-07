@@ -3,32 +3,25 @@ import json
 import logging
 import os
 import re
-import sys
+import signal
 from collections import Counter
 from dataclasses import asdict
 from pathlib import Path
 
 from .config import Config
 from .models import Request, UserError
+from .runtime import worker_command, worker_environment
 from .storage import Storage
 
 logger = logging.getLogger(__name__)
 
 
-async def run_worker(request: Request, config: Config, directory: Path) -> dict:
-    # AstrBot installs plugin dependencies into a target directory and adds it
-    # to sys.path. A fresh interpreter does not inherit those runtime additions.
-    # Resolve relative entries before changing the child's working directory.
-    environment = dict(os.environ)
-    environment["PYTHONPATH"] = os.pathsep.join(
-        str(Path(entry).resolve()) for entry in sys.path if isinstance(entry, str)
-    )
+async def run_worker(request: Request, config: Config, directory: Path, python: Path) -> dict:
     process = await asyncio.create_subprocess_exec(
-        sys.executable,
-        "-m",
-        "jm_comic_fetcher.worker",
-        cwd=Path(__file__).resolve().parent.parent,
-        env=environment,
+        *worker_command(python),
+        cwd=directory,
+        env=worker_environment(),
+        start_new_session=True,
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
@@ -56,13 +49,17 @@ async def run_worker(request: Request, config: Config, directory: Path) -> dict:
             raise UserError("Worker returned an invalid result; no archive was sent.") from exc
     finally:
         if process.returncode is None:
-            process.kill()
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
             await process.wait()
 
 
 class TaskManager:
-    def __init__(self, config: Config, storage: Storage):
+    def __init__(self, config: Config, storage: Storage, python: Path):
         self.config = config
+        self.python = python
         self.storage = storage
         self.slots = asyncio.Semaphore(config.max_running)
         self.owners = Counter()
@@ -118,7 +115,7 @@ class TaskManager:
                 )
             async with self.slots:
                 async with asyncio.timeout(self.config.timeout_seconds):
-                    result = await run_worker(request, self.config, directory)
+                    result = await run_worker(request, self.config, directory, self.python)
                     if "error" in result:
                         raise UserError(result["error"])
                     if "archive" in result:

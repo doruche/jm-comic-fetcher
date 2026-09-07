@@ -1,4 +1,4 @@
-"""Opt-in integration check of native installation in disposable AstrBot containers."""
+"""Opt-in isolated-runtime integration check in disposable AstrBot containers."""
 
 import argparse
 import asyncio
@@ -31,8 +31,9 @@ def require_unchanged(before: dict, after: dict) -> None:
         for name, version in before.items()
         if after.get(name) != version
     }
-    if changed:
-        raise AssertionError(f"Existing host packages changed: {changed}")
+    added = sorted(after.keys() - before.keys())
+    if changed or added:
+        raise AssertionError(f"Host packages changed: {changed}; added: {added}")
 
 
 def web_status() -> int:
@@ -43,25 +44,19 @@ def web_status() -> int:
 
 async def check_worker_and_archive(directory: Path) -> None:
     import zipfile
-    from dataclasses import replace
 
     import pikepdf
-    from data.plugins.astrbot_plugin_jm_comic_fetcher.jm_comic_fetcher.config import Config
-    from data.plugins.astrbot_plugin_jm_comic_fetcher.jm_comic_fetcher.models import (
+    from PIL import Image
+
+    from jm_comic_fetcher.config import Config
+    from jm_comic_fetcher.models import (
         Chapter,
         Comic,
         Request,
     )
-    from data.plugins.astrbot_plugin_jm_comic_fetcher.jm_comic_fetcher.service import execute
-    from data.plugins.astrbot_plugin_jm_comic_fetcher.jm_comic_fetcher.tasks import run_worker
-    from PIL import Image
+    from jm_comic_fetcher.service import execute
 
     config = Config()
-    async with asyncio.timeout(30):
-        result = await run_worker(
-            Request("brief", "123"), replace(config, max_running=0), directory
-        )
-    assert result == {"error": "Config max_running must be an integer >= 1."}, result
 
     class GeneratedComic:
         async def comic(self, _comic_id):
@@ -93,82 +88,83 @@ async def check_worker_and_archive(directory: Path) -> None:
 
 
 def inside() -> None:
-    os.chdir("/AstrBot")
-    sys.path.insert(0, "/AstrBot")
-    before = versions()
-    requirements = Path(f"/AstrBot/data/plugins/{PLUGIN_NAME}/requirements.txt")
-    with tempfile.TemporaryDirectory(prefix="astrbot-dependency-check-") as temporary:
-        scratch = Path(temporary)
-        report = scratch / "plan.json"
-        plan = subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "pip",
-                "install",
-                "--dry-run",
-                "--report",
-                str(report),
-                "--index-url",
-                "https://pypi.org/simple/",
-                "-r",
-                str(requirements),
-            ],
-            capture_output=True,
-            text=True,
-            timeout=180,
-        )
-        if plan.returncode:
-            raise AssertionError(plan.stderr[-4000:])
-        planned = dict(before)
-        for item in json.loads(report.read_text())["install"]:
-            metadata = item["metadata"]
-            planned[metadata["name"].lower().replace("_", "-")] = metadata["version"]
-        require_unchanged(before, planned)
-        print("PASS: install plan preserves all existing host packages", flush=True)
+    from dataclasses import replace
 
-        # No user configuration, accounts, providers or real conversations are mounted.
-        Path("data/cmd_config.json").write_text(
-            json.dumps(
-                {
-                    "pypi_index_url": "https://pypi.org/simple/",
-                    "platform": [],
-                    "provider": [],
-                }
-            )
-        )
+    source = Path(__file__).resolve().parents[1]
+    sys.path.insert(0, str(source))
+    from jm_comic_fetcher.config import Config
+    from jm_comic_fetcher.models import Request
+    from jm_comic_fetcher.runtime import Runtime, worker_environment
+    from jm_comic_fetcher.tasks import run_worker
+
+    os.chdir("/AstrBot")
+    before = versions()
+    runtime = Runtime(Path(f"/AstrBot/data/plugin_data/{PLUGIN_NAME}"))
+    ready = runtime.environment / ".ready"
+    # Exercise polluted installer configuration without changing AstrBot's package source.
+    poison = Path("/tmp/host-packages")
+    poison.mkdir()
+    (poison / "jmcomic.py").write_text("raise RuntimeError('host dependency leaked')")
+    os.environ["PYTHONPATH"] = str(poison)
+    uv_config = Path.home() / ".config/uv/uv.toml"
+    uv_config.parent.mkdir(parents=True, exist_ok=True)
+    uv_config.write_text('index-url = "https://invalid.example/simple"\n')
+    Path("data/cmd_config.json").write_text(json.dumps({"platform": [], "provider": []}))
+    with tempfile.TemporaryDirectory(prefix="jm-integration-") as temporary:
+        scratch = Path(temporary)
         log_path = scratch / "astrbot.log"
         with log_path.open("w") as log:
             process = subprocess.Popen([sys.executable, "main.py"], stdout=log, stderr=log)
             try:
-                deadline = time.monotonic() + 180
+                deadline = time.monotonic() + 660
                 while time.monotonic() < deadline:
                     if process.poll() is not None:
                         raise AssertionError("AstrBot exited during startup")
+                    logs = log_path.read_text()
                     try:
-                        if web_status() == 200:
+                        if (
+                            f"Plugin {PLUGIN_NAME} (" in logs
+                            and ready.is_file()
+                            and web_status() == 200
+                        ):
                             break
                     except (OSError, urllib.error.URLError):
                         pass
                     time.sleep(1)
                 else:
-                    raise AssertionError("WebUI did not become healthy")
-                logs = log_path.read_text()
-                assert f"Plugin {PLUGIN_NAME} (" in logs, "Plugin was not loaded"
-                assert "missing dependencies; installing" in logs, "Expected native installation"
+                    raise AssertionError("Plugin/WebUI did not become healthy")
+                stamp = ready.stat().st_mtime_ns
+                asyncio.run(runtime.prepare())
+                assert ready.stat().st_mtime_ns == stamp, "Ready environment was recreated"
                 require_unchanged(before, versions())
+                assert not Path("/tmp/forbidden-venv").exists()
                 artifacts = scratch / "artifacts"
                 artifacts.mkdir()
-                asyncio.run(check_worker_and_archive(artifacts))
+                result = asyncio.run(
+                    run_worker(
+                        Request("brief", "123"),
+                        replace(Config(), max_running=0),
+                        artifacts,
+                        runtime.python,
+                    )
+                )
+                assert result == {"error": "Config max_running must be an integer >= 1."}, result
+                subprocess.run(
+                    [
+                        str(runtime.python),
+                        "-I",
+                        str(Path(__file__).resolve()),
+                        "--fixture",
+                        str(artifacts),
+                    ],
+                    check=True,
+                    timeout=60,
+                    env=worker_environment(),
+                )
                 for _ in range(5):
                     assert web_status() == 200
-                check = subprocess.run(
-                    [sys.executable, "-m", "pip", "check"],
-                    capture_output=True,
-                    text=True,
-                    timeout=30,
-                )
-                assert check.returncode == 0, check.stdout + check.stderr
+                assert "jmcomic" not in sys.modules
+                require_unchanged(before, versions())
                 logs = log_path.read_text()
                 assert "Error in ASGI Framework" not in logs and "ImportError:" not in logs
                 print(
@@ -176,11 +172,11 @@ def inside() -> None:
                         {
                             "result": "PASS",
                             "host_packages_preserved": len(before),
-                            "anyio": versions().get("anyio"),
-                            "lxml": versions().get("lxml"),
                             "webui": 200,
-                            "worker": "PASS",
-                            "generated_archive": "PASS",
+                            "isolated_worker": "PASS",
+                            "archive": "PASS",
+                            "reuse": "PASS",
+                            "host_index_overrides_ignored": "PASS",
                         }
                     ),
                     flush=True,
@@ -201,8 +197,13 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--image", default="soulter/astrbot:latest")
     parser.add_argument("--rounds", type=int, default=2)
+    parser.add_argument("--fixture", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--inside", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
+    if args.fixture:
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+        asyncio.run(check_worker_and_archive(args.fixture))
+        return
     if args.inside:
         inside()
         return
@@ -228,6 +229,10 @@ def main() -> None:
                     "never",
                     "--env",
                     "PYTHONDONTWRITEBYTECODE=1",
+                    "--env",
+                    "UV_INDEX_URL=https://invalid.example/simple",
+                    "--env",
+                    "UV_PROJECT_ENVIRONMENT=/tmp/forbidden-venv",
                     "--mount",
                     f"type=bind,src={root},dst=/AstrBot/data/plugins/{PLUGIN_NAME},readonly",
                     "--entrypoint",
@@ -237,7 +242,7 @@ def main() -> None:
                     "--inside",
                 ],
                 check=True,
-                timeout=450,
+                timeout=900,
             )
         finally:
             # A killed Docker CLI does not necessarily stop its container.
