@@ -48,3 +48,11 @@ the import-recovery contract and found no additional issues. Regression tests
 include a real child interpreter with dependencies available only through parent
 runtime path additions. Container startup logs confirmed automatic installation
 was triggered by the missing worker dependency.
+
+Integration verification then completed in the recreated container: AstrBot
+automatically installed the seven missing/mismatched packages, loaded the plugin
+and reconnected OneBot. `uv pip check` passed for all 172 installed packages.
+The deployed `run_worker` downloaded chapter 1 of `1451879`, produced a 21-page
+PDF in a 22,640,245-byte ZIP, and passed ZIP integrity/PDF page-count checks.
+This verification used the container's Python and deployed files, not the host
+development virtual environment. No QQ message was sent by the check.
