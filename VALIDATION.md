@@ -16,6 +16,9 @@ Checked on 2026-09-07 against the local Python 3.12.14 AstrBot/NapCat deployment
 - Runtime dependency installation was checked against the existing container:
   `uv pip check` reported all 172 installed packages compatible. The install
   upgraded anyio 4.14.2 to 4.15.1 and lxml 6.1.2 to 6.1.3 inside the container.
+- AstrBot 4.27.5 loaded both this plugin and the migrated Ping plugin; OneBot
+  reconnected. Deployment requirements omit multiline hashes for compatibility
+  with AstrBot's dependency preflight parser (versions are still pinned).
 - An independent subagent reviewed the source, deployment script and installed
   AstrBot/jmcomic APIs. Two findings (redirect accounting and admission shutdown)
   were fixed and regression-tested. Re-review: 35 tests passed, no new findings.

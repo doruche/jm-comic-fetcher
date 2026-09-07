@@ -56,13 +56,17 @@ dependencies, update `uv.lock` and regenerate the committed deployment export:
 ```bash
 uv lock
 uv export --locked --no-dev --no-editable --no-emit-project \
-  --format requirements-txt --output-file requirements.txt
+  --no-hashes --format requirements-txt --output-file requirements.txt
 ```
 
 Offline tests use generated images and fake metadata; they never contact a comic
 site or QQ. Real upstream availability and QQ delivery require separate manual
 integration checks. Do not place downloaded material or personal configuration
 in this repository; `local/` is ignored for temporary local experimentation.
+
+The deployment export omits hashes because AstrBot 4.27.5's dependency preflight
+does not parse uv's multiline hash entries correctly. Versions remain pinned;
+the complete dependency hashes remain available in `uv.lock` for local uv installs.
 
 ## Deployment
 
