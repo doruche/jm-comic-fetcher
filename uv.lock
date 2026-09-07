@@ -212,6 +212,7 @@ dependencies = [
     { name = "httpx" },
     { name = "img2pdf" },
     { name = "jmcomic" },
+    { name = "pillow" },
 ]
 
 [package.dev-dependencies]
@@ -226,6 +227,7 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.28,<0.29" },
     { name = "img2pdf", specifier = ">=0.6,<0.7" },
     { name = "jmcomic", specifier = "==2.7.5" },
+    { name = "pillow", specifier = ">=10,<13" },
 ]
 
 [package.metadata.requires-dev]

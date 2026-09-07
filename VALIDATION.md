@@ -1,5 +1,45 @@
 # Validation
 
+## Current dependency policy (2026-09-07)
+
+Deployment requirements now contain only direct declarations from
+`pyproject.toml`, preserving their compatibility ranges. `uv.lock` remains the
+standalone development lockfile. Pillow is declared directly because the plugin
+imports it. The full transitive lock export described in older entries below
+has been superseded.
+
+The diagnosed WebUI failure was an in-process AnyIO version mix: installation
+upgraded 4.14.2 to 4.15.1 after AstrBot had imported older modules. Its subsequently
+loaded backend could not import `get_coro_name`; new interpreters worked, while
+the existing WebUI returned HTTP 500. `pip check` alone could not detect this.
+
+47 offline tests and Ruff pass. The opt-in `scripts/check_astrbot.py` ran two
+independent clean containers based on image
+`sha256:1db1792902be5ccecfb907a720ae22b233ebdc958854d860fc73d7f95a720637`.
+Both rounds passed pip plan checks and actual AstrBot native auto-installation:
+all 167 pre-existing distributions retained their versions, including AnyIO
+4.14.2 and lxml 6.1.2. Repeated WebUI requests returned HTTP 200, real child
+worker import/config processing passed, generated two-chapter PDF/ZIP processing
+passed, and `pip check` passed. No production data or QQ accounts were mounted.
+
+Independent read-only review found no blocking issues in dependency generation,
+the container check or documentation split. The README's Python version range
+was corrected to match project metadata.
+
+The plugin was synchronized and only AstrBot was restarted in the existing
+deployment. No Compose, account configuration or installed package versions
+were changed. The fresh process successfully loaded the plugin with the already
+installed AnyIO 4.15.1 and lxml 6.1.3. Five consecutive WebUI requests returned
+HTTP 200; port 6199 was listening with an established OneBot connection.
+The deployed worker and generated two-chapter PDF/ZIP check also passed, followed
+by another HTTP 200. `uv pip check` passed for all 172 installed packages.
+No real comic download or QQ send was performed for this recovery check.
+
+These checks establish compatibility with this image and current resolved
+dependencies, not arbitrary future releases or other plugin combinations.
+
+## Earlier implementation checks
+
 Checked on 2026-09-07 against the local Python 3.12.14 AstrBot/NapCat deployment.
 
 - Offline automated tests: 35 passed. Generated-image PDF page order, inclusive
