@@ -49,6 +49,21 @@ async def test_failed_response_bytes_count_on_retry(tmp_path):
         assert calls == 2 and client.budget.received == 8
 
 
+async def test_redirect_bodies_share_download_budget(tmp_path):
+    def respond(req):
+        if req.url.path == "/start":
+            return httpx.Response(302, headers={"location": "/final"}, content=b"1234")
+        return httpx.Response(200, content=b"5678")
+
+    async with Client(Config()) as client:
+        await client.http.aclose()
+        client.http = httpx.AsyncClient(transport=httpx.MockTransport(respond))
+        client.budget = DownloadBudget(6)
+        with pytest.raises(UserError, match="max_download"):
+            await client.stream_image("https://test.invalid/start", tmp_path / "page")
+        assert client.budget.received == 8
+
+
 def test_archive_limit_removes_partial(tmp_path):
     source = tmp_path / "random.bin"
     source.write_bytes(os.urandom(2 * 1024 * 1024))

@@ -1,6 +1,6 @@
 import asyncio
 from dataclasses import replace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -68,7 +68,7 @@ async def test_timeout_cancels_worker_without_upload(tmp_path, monkeypatch):
 async def test_subprocess_is_reaped_on_cancellation(tmp_path, monkeypatch):
     process = AsyncMock()
     process.returncode = None
-    process.kill = __import__("unittest.mock", fromlist=["Mock"]).Mock()
+    process.kill = Mock()
     entered = asyncio.Event()
 
     async def communicate(*args):
@@ -84,3 +84,24 @@ async def test_subprocess_is_reaped_on_cancellation(tmp_path, monkeypatch):
         await task
     process.kill.assert_called_once()
     process.wait.assert_awaited_once()
+
+
+async def test_close_cancels_acceptance_notification(tmp_path):
+    entered = asyncio.Event()
+
+    async def notify(text):
+        entered.set()
+        await asyncio.Event().wait()
+
+    manager = tasks.TaskManager(Config(), Storage(tmp_path))
+    await manager.submit("1", Request("brief", "123"), notify, AsyncMock())
+    await entered.wait()
+    await manager.close()
+    assert manager.pending == 0 and not manager.active and not manager.tasks
+
+
+async def test_close_before_first_task_step(tmp_path):
+    manager = tasks.TaskManager(Config(), Storage(tmp_path))
+    await manager.submit("1", Request("brief", "123"), AsyncMock(), AsyncMock())
+    await manager.close()
+    assert manager.pending == 0 and not manager.active

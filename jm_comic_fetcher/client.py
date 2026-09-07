@@ -46,7 +46,7 @@ class Client:
             proxy=config.proxy_url or None,
             trust_env=False,
             timeout=config.request_timeout_seconds,
-            follow_redirects=True,
+            follow_redirects=False,
             headers={**JmModuleConfig.APP_HEADERS_TEMPLATE, **JmModuleConfig.APP_HEADERS_IMAGE},
             limits=httpx.Limits(max_connections=config.image_concurrency),
         )
@@ -81,17 +81,29 @@ class Client:
         # Count bytes as they arrive, also on failed/retried responses. Never rely on HEAD.
         for attempt in range(self.config.max_retries + 1):
             try:
-                async with self.http.stream("GET", url) as response:
-                    with path.open("wb") as file:
-                        writer = GuardedWriter(file, self.config.min_free_disk_mib * MIB)
-                        async for chunk in response.aiter_bytes():
-                            self.budget.consume(len(chunk))
-                            if response.status_code == 200:
-                                writer.write(chunk)
-                    response.raise_for_status()
-                    if path.stat().st_size == 0:
-                        raise UserError("The upstream returned an empty image.")
-                return
+                current_url = url
+                for redirect in range(6):
+                    async with self.http.stream(
+                        "GET", current_url, follow_redirects=False
+                    ) as response:
+                        with path.open("wb") as file:
+                            writer = GuardedWriter(file, self.config.min_free_disk_mib * MIB)
+                            async for chunk in response.aiter_bytes():
+                                self.budget.consume(len(chunk))
+                                if response.status_code == 200:
+                                    writer.write(chunk)
+                        if response.has_redirect_location:
+                            if redirect == 5:
+                                raise UserError("Too many image redirects.")
+                            target = response.url.join(response.headers["location"])
+                            if target.scheme not in {"http", "https"}:
+                                raise UserError("Unsupported image redirect scheme.")
+                            current_url = str(target)
+                            continue
+                        response.raise_for_status()
+                        if path.stat().st_size == 0:
+                            raise UserError("The upstream returned an empty image.")
+                    return
             except httpx.HTTPError as exc:
                 if attempt == self.config.max_retries:
                     raise UserError("Image download failed after retries.") from exc

@@ -69,15 +69,6 @@ class TaskManager:
         self.pending += 1
         self.owners[owner] += 1
         self.active.add(directory)
-        try:
-            await notify(
-                f"Task {directory.name[:8]} accepted: {request.action} {request.comic_id}."
-            )
-            if self.closed:
-                raise UserError("Plugin was reloaded before the task could start.")
-        except BaseException:
-            self._release(owner, directory, False)
-            raise
         task = asyncio.create_task(self._execute(owner, request, directory, notify, deliver))
         self.tasks.add(task)
 
@@ -103,6 +94,10 @@ class TaskManager:
     async def _execute(self, owner, request, directory, notify, deliver) -> None:
         success = False
         try:
+            async with asyncio.timeout(30):
+                await notify(
+                    f"Task {directory.name[:8]} accepted: {request.action} {request.comic_id}."
+                )
             async with self.slots:
                 async with asyncio.timeout(self.config.timeout_seconds):
                     result = await run_worker(request, self.config, directory)
