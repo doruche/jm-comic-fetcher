@@ -1,15 +1,29 @@
 import asyncio
 import json
 from pathlib import Path
+from typing import Protocol
 
 from .archive import make_pdf, make_zip
-from .client import Client
 from .config import Config
-from .models import Request, UserError
+from .diagnostics import phase
+from .models import Chapter, Comic, Page, Request, UserError
+from .protocol import WorkerResult
 
 
-async def execute(request: Request, config: Config, directory: Path, client: Client) -> dict:
-    comic = await client.comic(request.comic_id)
+class ComicClient(Protocol):
+    """page/cover return complete, validated image files owned by this job."""
+
+    async def comic(self, comic_id: str) -> Comic: ...
+    async def chapter_images(self, chapter: Chapter) -> list[Page]: ...
+    async def page(self, detail: Page, path: Path) -> Path: ...
+    async def cover(self, comic_id: str, directory: Path) -> Path: ...
+
+
+async def execute(
+    request: Request, config: Config, directory: Path, client: ComicClient
+) -> WorkerResult:
+    with phase("metadata"):
+        comic = await client.comic(request.comic_id)
     if request.action == "brief":
         lines = [
             f"{comic.title}\nID: {comic.id}",
@@ -17,12 +31,14 @@ async def execute(request: Request, config: Config, directory: Path, client: Cli
             f"Chapters ({len(comic.chapters)}):",
             *(f"{chapter.index}. {chapter.title}" for chapter in comic.chapters),
         ]
-        return {"text": "\n".join(lines)}
+        return WorkerResult("ok", "\n".join(lines))
     if request.action == "cover":
-        cover = await client.cover(comic.id, directory)
+        with phase("download"):
+            cover = await client.cover(comic.id, directory)
         archive = directory / f"JM_{comic.id}_cover.zip"
-        make_zip([cover], archive, config)
-        return {"archive": archive.name, "text": f"Cover: {comic.title}"}
+        with phase("archive"):
+            make_zip([cover], archive, config)
+        return WorkerResult("ok", f"Cover: {comic.title}", archive.name)
     if request.action != "fetch":
         raise UserError("Unsupported task.")
 
@@ -31,7 +47,8 @@ async def execute(request: Request, config: Config, directory: Path, client: Cli
     plan = []
     pages = 0
     for chapter in selected:
-        images = await client.chapter_images(chapter)
+        with phase("metadata"):
+            images = await client.chapter_images(chapter)
         if not images:
             raise UserError(f"Chapter {chapter.index} contains no pages.")
         pages += len(images)
@@ -48,7 +65,8 @@ async def execute(request: Request, config: Config, directory: Path, client: Cli
 
     async def download(detail, path):
         async with semaphore:
-            return await client.page(detail, path)
+            with phase("download"):
+                return await client.page(detail, path)
 
     for chapter, images in plan:
         image_dir = directory / "images" / f"{chapter.index:03d}"
@@ -65,7 +83,8 @@ async def execute(request: Request, config: Config, directory: Path, client: Cli
             await asyncio.gather(*tasks, return_exceptions=True)
             raise
         pdf = pdf_dir / f"{chapter.index:03d}.pdf"
-        make_pdf(paths, pdf, config)
+        with phase("pdf"):
+            make_pdf(paths, pdf, config)
         files.append(pdf)
         # PDFs are now durable for this task; release intermediate images early.
         for path in paths:
@@ -78,8 +97,8 @@ async def execute(request: Request, config: Config, directory: Path, client: Cli
         encoding="utf-8",
     )
     archive = directory / f"JM_{comic.id}_{selected[0].index}-{selected[-1].index}.zip"
-    make_zip([*files, contents], archive, config)
-    return {
-        "archive": archive.name,
-        "text": f"Completed: {len(selected)} chapters, {pages} pages.\n{comic.title}",
-    }
+    with phase("archive"):
+        make_zip([*files, contents], archive, config)
+    return WorkerResult(
+        "ok", f"Completed: {len(selected)} chapters, {pages} pages.\n{comic.title}", archive.name
+    )

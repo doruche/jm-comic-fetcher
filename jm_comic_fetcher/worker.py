@@ -1,35 +1,34 @@
-"""Private subprocess entry point. Input is JSON on stdin; output is one JSON result."""
+"""Private subprocess entry point. Input and output are validated JSON messages."""
 
 import asyncio
 import json
 import sys
-from pathlib import Path
 
 from .client import Client
-from .config import Config
-from .models import Request, UserError
+from .diagnostics import diagnostic, failure_stage, phase
+from .models import UserError
+from .protocol import WorkerRequest, WorkerResult
 from .service import execute
 
 
-async def run(payload: dict) -> dict:
-    config = Config.from_mapping(payload["config"])
-    request = Request(**payload["request"])
-    directory = Path(payload["directory"])
-    async with Client(config) as client:
-        return await execute(request, config, directory, client)
+async def run(payload: object) -> WorkerResult:
+    with phase("request"):
+        job = WorkerRequest.from_dict(payload)
+    with phase("client"):
+        async with Client(job.config) as client:
+            return await execute(job.request, job.config, job.directory, client)
 
 
 def main() -> None:
     try:
         result = asyncio.run(run(json.load(sys.stdin)))
-    except UserError as exc:
-        result = {"error": str(exc)}
     except Exception as exc:
-        # Upstream exceptions may contain response bodies, cookies or proxy credentials.
-        result = {
-            "error": f"Task failed ({type(exc).__name__}). Check network or comic availability."
-        }
-    print(json.dumps(result, ensure_ascii=True))
+        stage = failure_stage(exc)
+        # Deliberately omit messages/locals: upstream exceptions can contain credentials.
+        print(json.dumps(diagnostic(exc, task="worker", stage=stage)), file=sys.stderr)
+        text = str(exc) if isinstance(exc, UserError) else f"Task failed during {stage}."
+        result = WorkerResult("error", text, stage=stage)
+    print(json.dumps(result.to_dict(), ensure_ascii=True))
 
 
 if __name__ == "__main__":

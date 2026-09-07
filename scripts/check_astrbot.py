@@ -52,6 +52,7 @@ async def check_worker_and_archive(directory: Path) -> None:
     from jm_comic_fetcher.models import (
         Chapter,
         Comic,
+        Page,
         Request,
     )
     from jm_comic_fetcher.service import execute
@@ -71,15 +72,15 @@ async def check_worker_and_archive(directory: Path) -> None:
             )
 
         async def chapter_images(self, chapter):
-            return [chapter.index]
+            return [Page(str(chapter.index), 0)]
 
         async def page(self, detail, path):
             image_path = path.with_suffix(".png")
-            Image.new("RGB", (40 + detail, 60), "white").save(image_path)
+            Image.new("RGB", (40 + int(detail.url), 60), "white").save(image_path)
             return image_path
 
     result = await execute(Request("fetch", "123"), config, directory, GeneratedComic())
-    with zipfile.ZipFile(directory / result["archive"]) as archive:
+    with zipfile.ZipFile(directory / result.archive) as archive:
         assert archive.testzip() is None
         assert archive.namelist() == ["001.pdf", "002.pdf", "chapters.txt"]
         for name in ("001.pdf", "002.pdf"):
@@ -148,7 +149,10 @@ def inside() -> None:
                         runtime.python,
                     )
                 )
-                assert result == {"error": "Config max_running must be an integer >= 1."}, result
+                assert (
+                    result.status == "error"
+                    and result.text == "Config max_running must be an integer >= 1."
+                ), result
                 subprocess.run(
                     [
                         str(runtime.python),

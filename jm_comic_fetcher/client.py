@@ -3,10 +3,11 @@ from pathlib import Path
 
 import httpx
 from jmcomic import AsyncJmApiClient, JmcomicText, JmImageTool, JmModuleConfig, JmOption
-from PIL import Image
+from PIL import Image, ImageSequence
 
 from .config import MIB, Config
-from .models import Chapter, Comic, UserError
+from .diagnostics import phase
+from .models import Chapter, Comic, Page, UserError
 from .storage import GuardedWriter
 
 
@@ -73,9 +74,9 @@ class Client:
             ),
         )
 
-    async def chapter_images(self, chapter: Chapter):
+    async def chapter_images(self, chapter: Chapter) -> list[Page]:
         photo = await self.api.get_photo_detail(chapter.id, fetch_album=False)
-        return list(photo)
+        return [Page(image.download_url, JmImageTool.get_num_by_detail(image)) for image in photo]
 
     async def stream_image(self, url: str, path: Path) -> None:
         # Count bytes as they arrive, also on failed/retried responses. Never rely on HEAD.
@@ -110,13 +111,22 @@ class Client:
                 await asyncio.sleep(min(2**attempt, 4))
 
     def validate_image(self, path: Path) -> str:
-        with Image.open(path) as image:
-            if image.width * image.height > self.config.max_image_megapixels * 1_000_000:
-                raise UserError("Image exceeds max_image_megapixels.")
-            image.verify()
-            return {"JPEG": ".jpg", "PNG": ".png", "WEBP": ".webp", "GIF": ".gif"}.get(
-                image.format, ".img"
-            )
+        with phase("decode"):
+            with Image.open(path) as image:
+                self._check_pixels(image)
+                suffix = {"JPEG": ".jpg", "PNG": ".png", "WEBP": ".webp", "GIF": ".gif"}.get(
+                    image.format, ".img"
+                )
+                image.verify()  # Includes structural/CRC checks for formats such as PNG.
+            with Image.open(path) as image:
+                for frame in ImageSequence.Iterator(image):
+                    self._check_pixels(frame)
+                    frame.load()  # JPEG verify() alone accepts truncated pixel data.
+            return suffix
+
+    def _check_pixels(self, image: Image.Image) -> None:
+        if image.width * image.height > self.config.max_image_megapixels * 1_000_000:
+            raise UserError("Image exceeds max_image_megapixels.")
 
     async def cover(self, comic_id: str, directory: Path) -> Path:
         raw = directory / "cover.download"
@@ -126,17 +136,17 @@ class Client:
         raw.replace(output)
         return output
 
-    async def page(self, detail, path: Path) -> Path:
+    async def page(self, detail: Page, path: Path) -> Path:
         raw = path.with_suffix(".download")
-        await self.stream_image(detail.download_url, raw)
+        await self.stream_image(detail.url, raw)
         suffix = self.validate_image(raw)
-        strips = JmImageTool.get_num_by_detail(detail)
+        strips = detail.strips
         if strips == 0 and suffix in {".jpg", ".png"}:
             output = path.with_suffix(suffix)
             raw.replace(output)
             return output
         output = path.with_suffix(".png")
-        with Image.open(raw) as image, output.open("wb") as file:
+        with phase("decode"), Image.open(raw) as image, output.open("wb") as file:
             # One image at a time is decoded; PDFs embed these files without loading all pixels.
             with image.convert("RGB") as rgb:
                 JmImageTool.decode_and_save(

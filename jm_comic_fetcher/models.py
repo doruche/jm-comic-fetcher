@@ -1,8 +1,13 @@
 from dataclasses import dataclass
+from typing import Literal
 
 
 class UserError(Exception):
     """An expected failure safe to display in chat."""
+
+
+class DeliveryRejected(UserError):
+    """The adapter explicitly reported that it could not accept the file send."""
 
 
 @dataclass(frozen=True)
@@ -18,6 +23,12 @@ class Comic:
     title: str
     description: str
     chapters: tuple[Chapter, ...]
+
+
+@dataclass(frozen=True)
+class Page:
+    url: str
+    strips: int
 
 
 @dataclass(frozen=True)
@@ -37,3 +48,18 @@ class Request:
         if end - start + 1 > max_chapters:
             raise UserError(f"Select at most {max_chapters} chapters per task.")
         return comic.chapters[start - 1 : end]
+
+
+@dataclass
+class JobState:
+    generation: Literal["not_started", "running", "succeeded", "failed", "cancelled"] = (
+        "not_started"
+    )
+    delivery: Literal["not_started", "accepted", "rejected", "unknown"] = "not_started"
+    notification: Literal["pending", "sent", "unknown"] = "pending"
+    outcome: Literal["pending", "succeeded", "failed", "cancelled", "uncertain"] = "pending"
+    stage: str = "acceptance"
+
+    @property
+    def success(self) -> bool:
+        return self.outcome == "succeeded"

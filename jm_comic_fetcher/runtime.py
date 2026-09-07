@@ -7,9 +7,11 @@ import json
 import os
 import platform
 import shutil
-import signal
 import sys
 from pathlib import Path
+
+from .diagnostics import process_failure, report
+from .processes import run_process
 
 ROOT = Path(__file__).resolve().parent.parent
 INDEX = "https://pypi.org/simple"
@@ -38,29 +40,18 @@ def worker_command(python: Path, *, probe: bool = False) -> list[str]:
 
 
 async def checked_process(arguments: list[str], environment: dict[str, str]) -> None:
-    process = await asyncio.create_subprocess_exec(
-        *arguments,
-        cwd=ROOT,
-        env=environment,
-        start_new_session=True,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
+    stage = "installation" if len(arguments) > 1 and arguments[1] == "sync" else "environment_probe"
     try:
-        await process.communicate()
-        if process.returncode:
-            # Do not expose index/proxy credentials or arbitrary upstream output.
-            raise RuntimeError(
-                f"Worker environment command failed (exit {process.returncode}). "
-                "Check PyPI connectivity, disk space and the supported Python/uv versions."
-            )
-    finally:
-        if process.returncode is None:
-            try:
-                os.killpg(process.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-            await process.wait()
+        result = await run_process(arguments, cwd=ROOT, environment=environment)
+    except Exception as exc:
+        report(exc, task="setup", stage=stage)
+        raise
+    if result.returncode:
+        process_failure(result.stderr, task="setup", stage=stage, returncode=result.returncode)
+        raise RuntimeError(
+            f"Worker environment command failed (exit {result.returncode}). "
+            "Check PyPI connectivity, disk space and the supported Python/uv versions."
+        )
 
 
 class Runtime:

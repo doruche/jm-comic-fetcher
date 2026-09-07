@@ -3,7 +3,13 @@
 The normal `uv run --locked pytest -q` suite is offline and uses generated images.
 It covers command/limit behavior, archives, scheduling and cancellation, installer
 configuration isolation, concurrent setup, failed/corrupt environment recovery,
-lock/Python changes, and separation from host Python dependencies.
+lock/Python changes, and separation from host Python dependencies. Regression
+checks include real process groups whose parent exits before a descendant,
+cancellation during spawn, cleanup threads that outlive their coroutine, truncated
+JPEG/PNG rejection, invalid worker replies, and file delivery followed by failed
+notifications. Tests use temporary files and generated images; they do not simulate
+recipient-side QQ acceptance. Host initialization/shutdown ordering is also reviewed
+against AstrBot's lifecycle source rather than recreated in a mock framework.
 
 ## GitHub Actions and local act
 

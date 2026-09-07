@@ -4,7 +4,6 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -120,28 +119,6 @@ async def test_missing_uv_has_actionable_error(tmp_path, monkeypatch):
     monkeypatch.setattr(runtime.shutil, "which", lambda *args, **kwargs: None)
     with pytest.raises(RuntimeError, match="AstrBot's PATH"):
         await runtime.Runtime(tmp_path).prepare()
-
-
-async def test_cancelled_installer_is_reaped(monkeypatch):
-    process = AsyncMock()
-    process.returncode = None
-    entered = asyncio.Event()
-
-    async def communicate():
-        entered.set()
-        await asyncio.Event().wait()
-
-    process.communicate.side_effect = communicate
-    kill = Mock()
-    monkeypatch.setattr(runtime.os, "killpg", kill)
-    monkeypatch.setattr(asyncio, "create_subprocess_exec", AsyncMock(return_value=process))
-    task = asyncio.create_task(runtime.checked_process(["uv"], {}))
-    await entered.wait()
-    task.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        await task
-    kill.assert_called_once()
-    process.wait.assert_awaited_once()
 
 
 async def test_lock_wait_is_bounded(tmp_path, monkeypatch):

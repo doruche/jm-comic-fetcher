@@ -4,10 +4,11 @@ import re
 import shutil
 import time
 import uuid
+from dataclasses import asdict
 from pathlib import Path
 
 from .config import MIB, Config
-from .models import UserError
+from .models import JobState, UserError
 
 
 class GuardedWriter:
@@ -53,10 +54,13 @@ class Storage:
         path.mkdir(mode=0o700)
         return path
 
-    def finish(self, path: Path, success: bool) -> None:
-        (path / "state.json").write_text(
-            json.dumps({"finished_at": time.time(), "success": success}), encoding="utf-8"
+    def finish(self, path: Path, state: JobState) -> None:
+        temporary = path / "state.partial"
+        temporary.write_text(
+            json.dumps({**asdict(state), "finished_at": time.time(), "success": state.success}),
+            encoding="utf-8",
         )
+        temporary.replace(path / "state.json")
 
     def publish(self, archive: Path) -> Path:
         """Expose only a completed ZIP to an adapter with a different Unix UID.
@@ -110,12 +114,22 @@ class Storage:
                 )
             except (OSError, ValueError, KeyError, TypeError):
                 # Incomplete jobs from a previous process are failures, never resumed.
-                age = time.time() - path.stat().st_mtime
+                try:
+                    age = time.time() - path.stat().st_mtime
+                except FileNotFoundError:
+                    continue
                 hours = config.failure_retention_hours
             if age > hours * 3600:
                 delivery = self.deliveries / path.name
                 if delivery.is_dir() and not delivery.is_symlink():
-                    shutil.rmtree(delivery)
-                shutil.rmtree(path)
+                    self._remove(delivery)
+                self._remove(path)
                 removed += 1
         return removed
+
+    @staticmethod
+    def _remove(path: Path) -> None:
+        try:
+            shutil.rmtree(path)
+        except FileNotFoundError:
+            pass

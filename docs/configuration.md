@@ -23,8 +23,8 @@ their limits. Empty allowlists deny all content commands; help and version remai
 | `max_archive_mib` | 100 | Maximum final ZIP size; oversized archives are not sent |
 | `min_free_disk_mib` | 1024 | Free space floor checked before tasks and during bulk writes |
 | `max_image_megapixels` | 40 | Maximum pixels decoded from one image |
-| `success_retention_hours` | 1 | Retention after adapter-reported successful delivery |
-| `failure_retention_hours` | 24 | Retention of failed/interrupted task files |
+| `success_retention_hours` | 1 | Retention after adapter-reported successful delivery, even if completion notification fails |
+| `failure_retention_hours` | 24 | Retention of failed, interrupted or unconfirmed task files |
 | `cleanup_interval_minutes` | 30 | Expired task cleanup frequency |
 | `proxy_url` | `""` | Optional HTTP(S) proxy; empty requests direct image connections |
 | `api_domains` | `[]` | Optional API hostnames without scheme/path; empty uses upstream defaults |

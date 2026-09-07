@@ -1,59 +1,51 @@
 import asyncio
 import json
 import logging
-import os
 import re
-import signal
 from collections import Counter
-from dataclasses import asdict
 from pathlib import Path
 
 from .config import Config
-from .models import Request, UserError
+from .diagnostics import log_worker_diagnostic, process_failure, report
+from .models import DeliveryRejected, JobState, Request, UserError
+from .processes import run_process, wait_owned
+from .protocol import WorkerRequest, WorkerResult
 from .runtime import worker_command, worker_environment
 from .storage import Storage
 
 logger = logging.getLogger(__name__)
 
 
-async def run_worker(request: Request, config: Config, directory: Path, python: Path) -> dict:
-    process = await asyncio.create_subprocess_exec(
-        *worker_command(python),
+async def run_worker(
+    request: Request, config: Config, directory: Path, python: Path
+) -> WorkerResult:
+    payload = WorkerRequest(request, config, directory).to_dict()
+    result = await run_process(
+        worker_command(python),
         cwd=directory,
-        env=worker_environment(),
-        start_new_session=True,
-        stdin=asyncio.subprocess.PIPE,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
+        environment=worker_environment(),
+        input_data=json.dumps(payload).encode(),
     )
+    if result.returncode:
+        process_failure(
+            result.stderr, task=directory.name, stage="worker", returncode=result.returncode
+        )
+        missing = re.search(
+            rb"ModuleNotFoundError: No module named '([A-Za-z0-9_.]+)'", result.stderr
+        )
+        detail = (
+            f"missing dependency {missing[1].decode('ascii')}"
+            if missing
+            else f"exit code {result.returncode}"
+        )
+        raise UserError(f"Worker could not complete ({detail}); no archive was sent.")
     try:
-        payload = {
-            "request": asdict(request),
-            "config": config.worker_config(),
-            "directory": str(directory),
-        }
-        output, errors = await process.communicate(json.dumps(payload).encode())
-        if process.returncode:
-            # Show only a safe module identifier, never raw upstream exceptions
-            # or environment values that might include credentials.
-            missing = re.search(rb"ModuleNotFoundError: No module named '([A-Za-z0-9_.]+)'", errors)
-            detail = (
-                f"missing dependency {missing[1].decode('ascii')}"
-                if missing
-                else f"exit code {process.returncode}"
-            )
-            raise UserError(f"Worker could not complete ({detail}); no archive was sent.")
-        try:
-            return json.loads(output)
-        except (ValueError, UnicodeError) as exc:
-            raise UserError("Worker returned an invalid result; no archive was sent.") from exc
-    finally:
-        if process.returncode is None:
-            try:
-                os.killpg(process.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-            await process.wait()
+        message = WorkerResult.from_dict(json.loads(result.stdout))
+        if message.status == "error":
+            log_worker_diagnostic(result.stderr, directory.name, message.stage)
+        return message
+    except (ValueError, UnicodeError) as exc:
+        raise UserError("Worker returned an invalid result; no archive was sent.") from exc
 
 
 class TaskManager:
@@ -70,7 +62,11 @@ class TaskManager:
         self.cleanup_task = None
 
     async def start(self) -> None:
-        await asyncio.to_thread(self.storage.cleanup, self.config, set())
+        if self.closed:
+            return
+        await self._cleanup()
+        if self.closed:
+            return
         self.cleanup_task = asyncio.create_task(self._clean_loop())
 
     async def submit(self, owner: str, request: Request, notify, deliver) -> str:
@@ -91,55 +87,99 @@ class TaskManager:
             self.tasks.discard(finished)
             # A task cancelled before its first step never enters _execute's finally.
             if directory in self.active:
-                self._release(owner, directory, False)
+                self._release(owner, directory, JobState(outcome="cancelled"))
 
         task.add_done_callback(done)
         return directory.name
 
-    def _release(self, owner: str, directory: Path, success: bool) -> None:
+    def _release(self, owner: str, directory: Path, state: JobState) -> None:
         self.pending -= 1
         self.owners[owner] -= 1
         if self.owners[owner] == 0:
             del self.owners[owner]
         try:
-            self.storage.finish(directory, success)
+            self.storage.finish(directory, state)
+        except OSError as exc:
+            report(exc, task=directory.name, stage="state")
         finally:
             self.active.discard(directory)
 
     async def _execute(self, owner, request, directory, notify, deliver) -> None:
-        success = False
+        state = JobState()
         try:
             async with asyncio.timeout(30):
                 await notify(
                     f"Task {directory.name[:8]} accepted: {request.action} {request.comic_id}."
                 )
+            state.stage = "queue"
             async with self.slots:
                 async with asyncio.timeout(self.config.timeout_seconds):
+                    state.stage = "generation"
+                    state.generation = "running"
                     result = await run_worker(request, self.config, directory, self.python)
-                    if "error" in result:
-                        raise UserError(result["error"])
-                    if "archive" in result:
-                        archive = directory / result["archive"]
+                    if result.status == "error":
+                        state.stage = result.stage
+                        raise UserError(result.text)
+                    state.generation = "succeeded"
+                    if result.archive is not None:
+                        state.stage = "publication"
+                        archive = directory / result.archive
                         if archive.resolve().parent != directory or not archive.is_file():
                             raise UserError("Worker produced an invalid archive path.")
-                        await deliver(self.storage.publish(archive))
-                    await notify(result["text"])
-                    success = True
-        except TimeoutError:
-            await self._report(notify, f"Task {directory.name[:8]} timed out and was stopped.")
-        except UserError as exc:
-            await self._report(notify, f"Task {directory.name[:8]} failed: {exc}")
+                        published = self.storage.publish(archive)
+                        state.stage = "delivery"
+                        # Once the call begins, an exception/cancellation cannot prove non-delivery.
+                        state.delivery = "unknown"
+                        try:
+                            await deliver(published)
+                        except DeliveryRejected:
+                            state.delivery = "rejected"
+                            raise
+                        state.delivery = "accepted"
+                        state.outcome = "succeeded"
+                    state.stage = "notification"
+                    state.notification = "unknown"
+                    await notify(result.text)
+                    state.notification = "sent"
+                    state.outcome = "succeeded"
         except asyncio.CancelledError:
+            self._failed_state(state, cancelled=True)
             raise
         except Exception as exc:
-            logger.warning("Task %s failed: %s", directory.name, type(exc).__name__)
-            await self._report(
-                notify,
-                f"Task {directory.name[:8]} failed ({type(exc).__name__}); "
-                "the upload may not have completed.",
-            )
+            self._failed_state(state)
+            report(exc, task=directory.name, stage=state.stage)
+            if state.delivery == "accepted":
+                # The archive was sent; a follow-up text failure cannot undo delivery.
+                pass
+            elif state.delivery == "unknown":
+                await self._report(
+                    notify,
+                    f"Task {directory.name[:8]}: file delivery could not be confirmed. "
+                    "Check the chat before retrying.",
+                )
+            elif state.notification == "unknown":
+                await self._report(
+                    notify,
+                    f"Task {directory.name[:8]}: result notification could not be confirmed.",
+                )
+            elif isinstance(exc, TimeoutError):
+                await self._report(notify, f"Task {directory.name[:8]} timed out and was stopped.")
+            else:
+                detail = str(exc) if isinstance(exc, UserError) else f"Error during {state.stage}."
+                await self._report(notify, f"Task {directory.name[:8]} failed: {detail}")
         finally:
-            self._release(owner, directory, success)
+            self._release(owner, directory, state)
+
+    @staticmethod
+    def _failed_state(state: JobState, *, cancelled: bool = False) -> None:
+        if state.generation == "running":
+            state.generation = "cancelled" if cancelled else "failed"
+        if state.delivery == "accepted":
+            state.outcome = "succeeded"
+        elif state.delivery == "unknown" or state.notification == "unknown":
+            state.outcome = "uncertain"
+        else:
+            state.outcome = "cancelled" if cancelled else "failed"
 
     @staticmethod
     async def _report(notify, text):
@@ -149,11 +189,18 @@ class TaskManager:
         except Exception as exc:
             logger.warning("Cannot report task failure: %s", type(exc).__name__)
 
+    async def _cleanup(self):
+        await wait_owned(
+            asyncio.create_task(
+                asyncio.to_thread(self.storage.cleanup, self.config, set(self.active))
+            )
+        )
+
     async def _clean_loop(self):
         while True:
             await asyncio.sleep(self.config.cleanup_interval_minutes * 60)
             try:
-                await asyncio.to_thread(self.storage.cleanup, self.config, set(self.active))
+                await self._cleanup()
             except OSError as exc:
                 logger.warning("Job cleanup failed: %s", type(exc).__name__)
 
@@ -164,4 +211,4 @@ class TaskManager:
             tasks.append(self.cleanup_task)
         for task in tasks:
             task.cancel()
-        await asyncio.gather(*tasks, return_exceptions=True)
+        await wait_owned(asyncio.gather(*tasks, return_exceptions=True))

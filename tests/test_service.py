@@ -6,7 +6,7 @@ import pytest
 from PIL import Image
 
 from jm_comic_fetcher.config import Config
-from jm_comic_fetcher.models import Chapter, Comic, Request, UserError
+from jm_comic_fetcher.models import Chapter, Comic, Page, Request, UserError
 from jm_comic_fetcher.service import execute
 
 
@@ -28,9 +28,10 @@ class FakeClient:
         )
 
     async def chapter_images(self, chapter):
-        return [(chapter.index, page) for page in (1, 2)]
+        return [Page(f"{chapter.index}:{page}", 0) for page in (1, 2)]
 
     async def page(self, detail, path):
+        detail = tuple(map(int, detail.url.split(":")))
         if self.fail and detail == (2, 2):
             raise UserError("A page failed.")
         self.downloaded.append(detail)
@@ -47,7 +48,7 @@ class FakeClient:
 async def test_range_archive_and_page_order(tmp_path):
     client = FakeClient()
     result = await execute(Request("fetch", "123", 2, 3), Config(), tmp_path, client)
-    with zipfile.ZipFile(tmp_path / result["archive"]) as archive:
+    with zipfile.ZipFile(tmp_path / result.archive) as archive:
         assert archive.namelist() == ["002.pdf", "003.pdf", "chapters.txt"]
         assert archive.testzip() is None
         assert all(info.compress_type == zipfile.ZIP_DEFLATED for info in archive.infolist())
@@ -83,9 +84,9 @@ async def test_limits_before_image_download(tmp_path, job_request, config):
 async def test_inspect_modes(tmp_path):
     client = FakeClient()
     brief = await execute(Request("brief", "123"), Config(), tmp_path, client)
-    assert "2. Middle" in brief["text"] and "A description" in brief["text"]
+    assert "2. Middle" in brief.text and "A description" in brief.text
     assert list(tmp_path.iterdir()) == []
     result = await execute(Request("cover", "123"), Config(), tmp_path, client)
-    with zipfile.ZipFile(tmp_path / result["archive"]) as archive:
+    with zipfile.ZipFile(tmp_path / result.archive) as archive:
         assert archive.namelist() == ["cover.png"]
         assert archive.read("cover.png") == (tmp_path / "cover.png").read_bytes()

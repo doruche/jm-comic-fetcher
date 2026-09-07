@@ -1,0 +1,87 @@
+"""Validated JSON boundary shared by the host and worker (standard library only)."""
+
+import re
+from dataclasses import asdict, dataclass
+from pathlib import Path
+from typing import Literal
+
+from .config import Config
+from .models import Request
+
+
+class ProtocolError(ValueError):
+    pass
+
+
+@dataclass(frozen=True)
+class WorkerRequest:
+    request: Request
+    config: Config
+    directory: Path
+
+    def to_dict(self) -> dict:
+        return {
+            "request": asdict(self.request),
+            "config": self.config.worker_config(),
+            "directory": str(self.directory),
+        }
+
+    @classmethod
+    def from_dict(cls, value: object) -> "WorkerRequest":
+        if not isinstance(value, dict) or set(value) != {"request", "config", "directory"}:
+            raise ProtocolError("Invalid worker request fields")
+        raw = value["request"]
+        if not isinstance(raw, dict) or set(raw) != {"action", "comic_id", "start", "end"}:
+            raise ProtocolError("Invalid content request fields")
+        if raw["action"] not in ("brief", "cover", "fetch"):
+            raise ProtocolError("Invalid content action")
+        if not isinstance(raw["comic_id"], str) or not re.fullmatch(
+            r"[1-9][0-9]{0,17}", raw["comic_id"]
+        ):
+            raise ProtocolError("Invalid comic ID")
+        if any(type(raw[key]) is not int or raw[key] < 0 for key in ("start", "end")):
+            raise ProtocolError("Invalid chapter range")
+        if (raw["start"] == 0 and raw["end"] != 0) or (raw["start"] > raw["end"]):
+            raise ProtocolError("Invalid chapter range")
+        if raw["action"] != "fetch" and (raw["start"] or raw["end"]):
+            raise ProtocolError("Unexpected chapter range")
+        directory = value["directory"]
+        if not isinstance(directory, str) or not Path(directory).is_absolute():
+            raise ProtocolError("Worker directory must be absolute")
+        if not isinstance(value["config"], dict):
+            raise ProtocolError("Invalid worker configuration")
+        return cls(Request(**raw), Config.from_mapping(value["config"]), Path(directory))
+
+
+@dataclass(frozen=True)
+class WorkerResult:
+    status: Literal["ok", "error"]
+    text: str
+    archive: str | None = None
+    stage: str | None = None
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, value: object) -> "WorkerResult":
+        if not isinstance(value, dict) or set(value) != {"status", "text", "archive", "stage"}:
+            raise ProtocolError("Invalid worker result fields")
+        status, text, archive, stage = (
+            value[key] for key in ("status", "text", "archive", "stage")
+        )
+        if status not in ("ok", "error") or not isinstance(text, str) or not text:
+            raise ProtocolError("Invalid worker result status/text")
+        if archive is not None and (
+            not isinstance(archive, str) or not re.fullmatch(r"[A-Za-z0-9_-]+\.zip", archive)
+        ):
+            raise ProtocolError("Invalid archive filename")
+        if stage is not None and (
+            not isinstance(stage, str) or not re.fullmatch(r"[a-z_]+", stage)
+        ):
+            raise ProtocolError("Invalid worker failure stage")
+        if (status == "ok" and stage is not None) or (
+            status == "error" and (archive is not None or stage is None)
+        ):
+            raise ProtocolError("Contradictory worker result")
+        return cls(status, text, archive, stage)

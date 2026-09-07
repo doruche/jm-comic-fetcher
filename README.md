@@ -26,6 +26,10 @@ and currently supports OneBot/NapCat.
   them with a positional chapter.
 - `/jmcomic random` is reserved but not implemented.
 
+A successful file-send result remains successful if its follow-up notification fails.
+If delivery cannot be confirmed, check the chat before retrying; sends are not
+automatically retried.
+
 Command help and status messages are in English. Archives are ordinary ZIP files
 and require no password. Use content you are entitled to access and share.
 
