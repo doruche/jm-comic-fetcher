@@ -43,6 +43,7 @@ uv sync --locked
 uv run pytest -q
 uv run ruff check .
 uv run ruff format --check .
+uv run --locked python scripts/requirements.py --check
 ```
 
 Nix pins only the development shell's `uv` through `flake.lock`. uv manages Python
@@ -55,9 +56,16 @@ dependencies, update `uv.lock` and regenerate the committed deployment export:
 
 ```bash
 uv lock
-uv export --locked --no-dev --no-editable --no-emit-project \
-  --no-hashes --format requirements-txt --output-file requirements.txt
+uv run --locked python scripts/requirements.py
+uv run --locked python scripts/requirements.py --check
 ```
+
+`scripts/requirements.py` calls `uv export --locked` without development
+dependencies or the project itself. `pyproject.toml` is the only hand-maintained
+dependency declaration; `uv.lock` and `requirements.txt` are generated outputs.
+Do not edit requirements by hand. The check exits nonzero for stale exports or
+an outdated lockfile. Run it before syncing or committing dependency changes.
+The offline test suite also checks the committed export against uv.
 
 Offline tests use generated images and fake metadata; they never contact a comic
 site or QQ. Real upstream availability and QQ delivery require separate manual
