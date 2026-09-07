@@ -1,0 +1,7 @@
+name: astrbot_plugin_jm_comic_fetcher
+display_name: JM Comic Fetcher
+desc: 查询漫画目录，按章节生成 PDF 和普通 ZIP 附件。
+version: v0.1.0
+author: doruche
+support_platforms:
+  - aiocqhttp

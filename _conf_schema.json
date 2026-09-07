@@ -1,0 +1,22 @@
+{
+  "allowed_user_ids": {"type": "list", "default": [], "description": "Allowed QQ user IDs (strings)", "hint": "Empty denies all requests except help. Groups require both user and group permission."},
+  "allowed_group_ids": {"type": "list", "default": [], "description": "Allowed QQ group IDs (strings)", "hint": "Empty disables group use."},
+  "max_running": {"type": "int", "default": 1, "description": "Concurrent task processes (1–8)"},
+  "max_queued": {"type": "int", "default": 3, "description": "Additional queued tasks (0 or more)"},
+  "max_pending_per_user": {"type": "int", "default": 1, "description": "Running plus queued tasks per user"},
+  "timeout_seconds": {"type": "int", "default": 1800, "description": "Task timeout in seconds, including upload, excluding queue wait"},
+  "image_concurrency": {"type": "int", "default": 3, "description": "Concurrent image requests per task (1–16)"},
+  "request_timeout_seconds": {"type": "int", "default": 30, "description": "Network request timeout in seconds"},
+  "max_retries": {"type": "int", "default": 2, "description": "Retries after the first attempt (0–5)", "hint": "Metadata retries apply per upstream domain; task timeout still bounds the whole task."},
+  "max_chapters": {"type": "int", "default": 10, "description": "Maximum selected chapters per task"},
+  "max_pages": {"type": "int", "default": 500, "description": "Maximum selected pages per task"},
+  "max_download_mib": {"type": "int", "default": 300, "description": "Cumulative image response bytes per task (MiB)", "hint": "Includes bytes received during failed attempts; metadata is not counted."},
+  "max_archive_mib": {"type": "int", "default": 100, "description": "Maximum final ZIP size (MiB)", "hint": "A local limit, not a guarantee that QQ accepts files of this size."},
+  "min_free_disk_mib": {"type": "int", "default": 1024, "description": "Minimum remaining disk space (MiB)"},
+  "max_image_megapixels": {"type": "int", "default": 40, "description": "Maximum decoded pixels per image (megapixels)"},
+  "success_retention_hours": {"type": "int", "default": 1, "description": "Retention after successful delivery (hours)"},
+  "failure_retention_hours": {"type": "int", "default": 24, "description": "Retention of failed/interrupted tasks (hours)"},
+  "cleanup_interval_minutes": {"type": "int", "default": 30, "description": "Expired task cleanup interval (minutes)"},
+  "proxy_url": {"type": "string", "default": "", "description": "Optional HTTP(S) proxy URL", "hint": "Leave empty for direct connections. Do not commit credentials."},
+  "api_domains": {"type": "list", "default": [], "description": "Optional upstream API hostnames", "hint": "Without https:// or paths. Empty uses the library defaults."}
+}

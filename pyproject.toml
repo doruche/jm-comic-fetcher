@@ -1,0 +1,30 @@
+[project]
+name = "jm-comic-fetcher"
+version = "0.1.0"
+description = "A personal AstrBot comic archive plugin"
+requires-python = ">=3.12,<3.15"
+license = "MIT"
+dependencies = [
+    "jmcomic==2.7.5",
+    "httpx>=0.28,<0.29",
+    "img2pdf>=0.6,<0.7",
+]
+
+[dependency-groups]
+dev = ["pytest>=8,<10", "pytest-asyncio>=1,<2", "ruff>=0.12,<1"]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ASYNC"]
+ignore = ["ASYNC240"] # Local filesystem operations; heavy work lives in a subprocess.
