@@ -264,6 +264,46 @@ async def test_explicit_send_rejection(tmp_path, monkeypatch):
     await manager.close()
 
 
+@pytest.mark.parametrize("failure", [None, OSError, TimeoutError, asyncio.CancelledError])
+async def test_download_notice_precedes_upload_and_only_cancellation_stops_it(
+    tmp_path, monkeypatch, failure
+):
+    import json
+
+    from jm_comic_fetcher.protocol import DownloadStats, WorkerResult
+
+    events = []
+
+    async def worker(request, config, directory, python):
+        (directory / "result.zip").write_bytes(b"PK fixture")
+        return WorkerResult("ok", "Completed", "result.zip", download=DownloadStats(1048576, 2))
+
+    async def notify(text):
+        if "Downloaded:" in text:
+            events.append("stats")
+            assert "avg 0.50 MiB/s" in text and "archive ready" in text
+            if failure:
+                raise failure()
+        elif text == "Completed":
+            events.append("completed")
+
+    async def deliver(path):
+        events.append("upload")
+
+    monkeypatch.setattr(tasks, "run_worker", worker)
+    manager = tasks.TaskManager(Config(), Storage(tmp_path), Path(sys.executable))
+    job = await manager.submit("1", Request("fetch", "123"), notify, deliver)
+    await asyncio.gather(*manager.tasks, return_exceptions=True)
+    state = json.loads((manager.storage.jobs / job / "state.json").read_text())
+    if failure is asyncio.CancelledError:
+        assert events == ["stats"]
+        assert state["delivery"] == "not_started" and state["outcome"] == "cancelled"
+    else:
+        assert events == ["stats", "upload", "completed"]
+        assert state["delivery"] == "accepted" and state["success"] is True
+    await manager.close()
+
+
 @pytest.mark.parametrize("fails", [False, True])
 @pytest.mark.parametrize("job_request", [Request("brief", "123"), Request("random", "")])
 async def test_text_result_requires_notification(tmp_path, monkeypatch, fails, job_request):

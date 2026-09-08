@@ -49,6 +49,22 @@ async def test_failed_response_bytes_count_on_retry(tmp_path):
         assert calls == 2 and client.budget.received == 8
 
 
+async def test_successful_retry_statistics_include_failed_response_bytes(tmp_path):
+    calls = 0
+
+    def respond(req):
+        nonlocal calls
+        calls += 1
+        return httpx.Response(503 if calls == 1 else 200, content=b"1234")
+
+    async with Client(replace(Config(), max_retries=1)) as client:
+        await client.http.aclose()
+        client.http = httpx.AsyncClient(transport=httpx.MockTransport(respond))
+        await client.stream_image("https://test.invalid/image", tmp_path / "page")
+        assert client.downloaded_bytes == 8
+        assert (tmp_path / "page").stat().st_size == 4
+
+
 async def test_redirect_bodies_share_download_budget(tmp_path):
     def respond(req):
         if req.url.path == "/start":

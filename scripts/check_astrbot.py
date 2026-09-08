@@ -60,6 +60,8 @@ async def check_worker_and_archive(directory: Path) -> None:
     config = Config()
 
     class GeneratedComic:
+        downloaded_bytes = 0
+
         async def comic(self, _comic_id):
             return Comic(
                 "123",
@@ -77,6 +79,7 @@ async def check_worker_and_archive(directory: Path) -> None:
         async def page(self, detail, path):
             image_path = path.with_suffix(".png")
             Image.new("RGB", (40 + int(detail.url), 60), "white").save(image_path)
+            self.downloaded_bytes += image_path.stat().st_size
             return image_path
 
     result = await execute(Request("fetch", "123"), config, directory, GeneratedComic())

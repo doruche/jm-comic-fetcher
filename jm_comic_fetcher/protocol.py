@@ -1,11 +1,12 @@
 """Validated JSON boundary shared by the host and worker (standard library only)."""
 
+import math
 import re
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Literal
 
-from .config import Config
+from .config import MIB, Config
 from .models import Request
 
 
@@ -57,18 +58,50 @@ class WorkerRequest:
 
 
 @dataclass(frozen=True)
+class DownloadStats:
+    received_bytes: int
+    seconds: float
+
+    def summary(self) -> str:
+        mib = self.received_bytes / MIB
+        speed = f"{mib / self.seconds:.2f} MiB/s" if self.seconds > 0 else "N/A"
+        return (
+            f"Downloaded: {mib:.2f} MiB in {self.seconds:.2f} s - avg {speed}\n"
+            "Includes image processing and retries; excludes packing and upload."
+        )
+
+    @classmethod
+    def from_dict(cls, value: object) -> "DownloadStats":
+        if not isinstance(value, dict) or set(value) != {"received_bytes", "seconds"}:
+            raise ProtocolError("Invalid download statistics fields")
+        size, seconds = value["received_bytes"], value["seconds"]
+        if type(size) is not int or size < 0:
+            raise ProtocolError("Invalid download byte count")
+        if type(seconds) not in (int, float) or not math.isfinite(seconds) or seconds < 0:
+            raise ProtocolError("Invalid download duration")
+        return cls(size, seconds)
+
+
+@dataclass(frozen=True)
 class WorkerResult:
     status: Literal["ok", "error"]
     text: str
     archive: str | None = None
     stage: str | None = None
+    download: DownloadStats | None = None
 
     def to_dict(self) -> dict:
         return asdict(self)
 
     @classmethod
     def from_dict(cls, value: object) -> "WorkerResult":
-        if not isinstance(value, dict) or set(value) != {"status", "text", "archive", "stage"}:
+        if not isinstance(value, dict) or set(value) != {
+            "status",
+            "text",
+            "archive",
+            "stage",
+            "download",
+        }:
             raise ProtocolError("Invalid worker result fields")
         status, text, archive, stage = (
             value[key] for key in ("status", "text", "archive", "stage")
@@ -87,4 +120,9 @@ class WorkerResult:
             status == "error" and (archive is not None or stage is None)
         ):
             raise ProtocolError("Contradictory worker result")
-        return cls(status, text, archive, stage)
+        download = value["download"]
+        if download is not None:
+            if status != "ok" or archive is None:
+                raise ProtocolError("Download statistics require a successful archive")
+            download = DownloadStats.from_dict(download)
+        return cls(status, text, archive, stage, download)

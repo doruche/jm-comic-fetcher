@@ -128,6 +128,16 @@ class TaskManager:
                         if archive.resolve().parent != directory or not archive.is_file():
                             raise UserError("Worker produced an invalid archive path.")
                         published = self.storage.publish(archive)
+                        if result.download is not None:
+                            state.stage = "download_notification"
+                            try:
+                                async with asyncio.timeout(15):
+                                    await notify(
+                                        f"Task {directory.name[:8]}: archive ready.\n"
+                                        f"{result.download.summary()}\nUploading file next."
+                                    )
+                            except Exception as exc:
+                                report(exc, task=directory.name, stage=state.stage)
                         state.stage = "delivery"
                         # Once the call begins, an exception/cancellation cannot prove non-delivery.
                         state.delivery = "unknown"

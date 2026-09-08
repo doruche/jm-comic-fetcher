@@ -14,6 +14,7 @@ class FakeClient:
     def __init__(self, fail=False):
         self.fail = fail
         self.downloaded = []
+        self.downloaded_bytes = 0
 
     async def comic(self, _id):
         return Comic(
@@ -37,11 +38,13 @@ class FakeClient:
         self.downloaded.append(detail)
         output = path.with_suffix(".png")
         Image.new("RGB", (40 + detail[1], 60), "white").save(output)
+        self.downloaded_bytes += output.stat().st_size
         return output
 
     async def cover(self, comic_id, directory):
         path = directory / "cover.png"
         Image.new("RGB", (40, 60), "blue").save(path)
+        self.downloaded_bytes += path.stat().st_size
         return path
 
 
@@ -90,3 +93,21 @@ async def test_inspect_modes(tmp_path):
     with zipfile.ZipFile(tmp_path / result.archive) as archive:
         assert archive.namelist() == ["cover.png"]
         assert archive.read("cover.png") == (tmp_path / "cover.png").read_bytes()
+
+
+@pytest.mark.parametrize("action", ["fetch", "cover"])
+async def test_download_statistics_measure_only_download_batches(tmp_path, monkeypatch, action):
+    from jm_comic_fetcher.protocol import WorkerResult
+
+    # Two concurrent pages in each chapter take 2s and 3s of wall time.
+    # The 88s gap between batches represents PDF processing, not download time.
+    times = iter([10.0, 12.0, 100.0, 103.0] if action == "fetch" else [10.0, 12.0])
+    monkeypatch.setattr("jm_comic_fetcher.service.perf_counter", lambda: next(times))
+    client = FakeClient()
+    client.downloaded_bytes = 77  # A prior operation must not enter this request's count.
+    req = Request("fetch", "123", 1, 2) if action == "fetch" else Request("cover", "123")
+    result = await execute(req, Config(), tmp_path, client)
+    assert result.download.seconds == (5 if action == "fetch" else 2)
+    assert result.download.received_bytes == client.downloaded_bytes - 77 > 0
+    assert result.archive is not None
+    assert WorkerResult.from_dict(result.to_dict()) == result

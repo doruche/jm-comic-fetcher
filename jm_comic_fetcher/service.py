@@ -1,17 +1,21 @@
 import asyncio
 import json
 from pathlib import Path
+from time import perf_counter
 from typing import Protocol
 
 from .archive import make_pdf, make_zip
 from .config import Config
 from .diagnostics import phase
 from .models import Chapter, Comic, Page, Request, UserError
-from .protocol import WorkerResult
+from .protocol import DownloadStats, WorkerResult
 
 
 class ComicClient(Protocol):
     """page/cover return complete, validated image files owned by this job."""
+
+    @property
+    def downloaded_bytes(self) -> int: ...
 
     async def comic(self, comic_id: str) -> Comic: ...
     async def random_comic(self) -> Comic: ...
@@ -38,12 +42,15 @@ async def execute(
         ]
         return WorkerResult("ok", "\n".join(lines))
     if request.action == "cover":
+        initial_bytes = client.downloaded_bytes
+        started = perf_counter()
         with phase("download"):
             cover = await client.cover(comic.id, directory)
+        stats = DownloadStats(client.downloaded_bytes - initial_bytes, perf_counter() - started)
         archive = directory / f"JM_{comic.id}_cover.zip"
         with phase("archive"):
             make_zip([cover], archive, config)
-        return WorkerResult("ok", f"Cover: {comic.title}", archive.name)
+        return WorkerResult("ok", f"Cover: {comic.title}", archive.name, download=stats)
     if request.action != "fetch":
         raise UserError("Unsupported task.")
 
@@ -67,6 +74,8 @@ async def execute(
     pdf_dir.mkdir()
     files = []
     semaphore = asyncio.Semaphore(config.image_concurrency)
+    initial_bytes = client.downloaded_bytes
+    download_seconds = 0.0
 
     async def download(detail, path):
         async with semaphore:
@@ -76,6 +85,7 @@ async def execute(
     for chapter, images in plan:
         image_dir = directory / "images" / f"{chapter.index:03d}"
         image_dir.mkdir(parents=True)
+        started = perf_counter()
         tasks = [
             asyncio.create_task(download(detail, image_dir / f"{i:04d}"))
             for i, detail in enumerate(images, 1)
@@ -87,6 +97,7 @@ async def execute(
                 task.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
             raise
+        download_seconds += perf_counter() - started
         pdf = pdf_dir / f"{chapter.index:03d}.pdf"
         with phase("pdf"):
             make_pdf(paths, pdf, config)
@@ -105,5 +116,8 @@ async def execute(
     with phase("archive"):
         make_zip([*files, contents], archive, config)
     return WorkerResult(
-        "ok", f"Completed: {len(selected)} chapters, {pages} pages.\n{comic.title}", archive.name
+        "ok",
+        f"Completed: {len(selected)} chapters, {pages} pages.\n{comic.title}",
+        archive.name,
+        download=DownloadStats(client.downloaded_bytes - initial_bytes, download_seconds),
     )

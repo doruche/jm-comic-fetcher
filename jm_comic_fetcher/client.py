@@ -66,6 +66,10 @@ class Client:
     async def __aenter__(self):
         return self
 
+    @property
+    def downloaded_bytes(self) -> int:
+        return self.budget.received
+
     async def __aexit__(self, *args):
         try:
             await self.api.close()

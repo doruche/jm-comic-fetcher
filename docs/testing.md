@@ -67,6 +67,9 @@ Use the same wake prefix / bot mention that works for `/help`.
 4. `/jmcomic fetch <comic_id> --from 1 --to 2` — two PDFs in one ZIP, if those chapters
    exist; compare page order visually with the source.
 5. `/jmcomic inspect <comic_id> cover` — cover image inside a ZIP.
+   For fetch and cover, check that the archive-ready notice reports downloaded
+   MiB, elapsed seconds and average MiB/s before the attachment is sent. These
+   figures exclude packing/upload time and need not match the ZIP size.
 6. Repeat an attachment send in the allowlisted group and open it on your phone.
 7. `/jmcomic random` — an ID, description and numbered chapter list, with no
    attachment. Inspect the returned ID with `inspect <comic_id> brief` and compare.

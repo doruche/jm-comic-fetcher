@@ -84,3 +84,10 @@ messages, traceback locals, URLs, cookies and response bodies are not copied to
 logs. Installer stderr is classified into bounded hints such as disk, certificate,
 download, build, lockfile and unsupported-tool errors. Unexpected failures give
 chat a safe stage-based message; expected user errors retain their useful explanation.
+
+Successful archive worker results include structured download bytes and elapsed
+seconds. The host validates these values and sends a best-effort statistics notice
+before calling the file adapter, with a 15-second notice timeout inside the overall
+task timeout. Notice failures are logged without changing delivery/terminal
+notification state; cancellation propagates. The final completion notification
+and uncertain-delivery handling retain their existing meanings.

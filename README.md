@@ -38,6 +38,15 @@ the normal request retry policy. A missing or inconsistent initial total fails
 explicitly. Separate requests may
 return the same comic; there is no history or deduplication across tasks.
 
+After a fetch or cover archive is ready, the plugin reports received MiB, download
+processing time and average MiB/s before starting the file upload. Time includes
+image validation/decoding and retry waits; bytes include failed attempts and
+redirect bodies. Concurrent requests share wall time, and chapter download times
+are summed. Queue wait, metadata queries, PDF/ZIP creation and QQ upload are excluded.
+This measures the task's download processing rate, not raw network bandwidth.
+Failure to send this optional notice does not prevent upload; cancellation still
+stops the task. Brief and random results do not include download statistics.
+
 A successful file-send result remains successful if its follow-up notification fails.
 If delivery cannot be confirmed, check the chat before retrying; sends are not
 automatically retried.

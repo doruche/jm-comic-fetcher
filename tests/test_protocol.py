@@ -8,7 +8,7 @@ import pytest
 from jm_comic_fetcher.config import Config
 from jm_comic_fetcher.diagnostics import diagnostic, log_worker_diagnostic, phase
 from jm_comic_fetcher.models import Request
-from jm_comic_fetcher.protocol import ProtocolError, WorkerRequest, WorkerResult
+from jm_comic_fetcher.protocol import DownloadStats, ProtocolError, WorkerRequest, WorkerResult
 from jm_comic_fetcher.tasks import run_worker
 
 
@@ -35,6 +35,43 @@ def test_rejects_contradictory_or_unsafe_result(changes):
 def test_invalid_result_shape(raw):
     with pytest.raises(ProtocolError):
         WorkerResult.from_dict(raw)
+
+
+@pytest.mark.parametrize(
+    "stats",
+    [
+        {},
+        {"received_bytes": -1, "seconds": 1},
+        {"received_bytes": True, "seconds": 1},
+        {"received_bytes": 1.5, "seconds": 1},
+        {"received_bytes": 1, "seconds": True},
+        {"received_bytes": 1, "seconds": -1},
+        {"received_bytes": 1, "seconds": float("nan")},
+        {"received_bytes": 1, "seconds": float("inf")},
+    ],
+)
+def test_invalid_download_statistics(stats):
+    value = WorkerResult("ok", "Done", "result.zip").to_dict()
+    value["download"] = stats
+    with pytest.raises(ProtocolError):
+        WorkerResult.from_dict(value)
+
+
+@pytest.mark.parametrize(
+    "result", [WorkerResult("ok", "Brief"), WorkerResult("error", "Failed", stage="download")]
+)
+def test_statistics_require_successful_archive(result):
+    value = result.to_dict()
+    value["download"] = {"received_bytes": 1, "seconds": 1}
+    with pytest.raises(ProtocolError):
+        WorkerResult.from_dict(value)
+
+
+def test_download_summary_units_and_zero_duration():
+    assert (
+        "Downloaded: 6.00 MiB in 2.00 s - avg 3.00 MiB/s" in DownloadStats(6 * 1048576, 2).summary()
+    )
+    assert "avg N/A" in DownloadStats(1, 0).summary()
 
 
 @pytest.mark.parametrize(

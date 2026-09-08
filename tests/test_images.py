@@ -68,6 +68,8 @@ async def test_failed_page_cancels_other_downloads(tmp_path):
     cancelled = asyncio.Event()
 
     class ClientFixture:
+        downloaded_bytes = 0
+
         async def comic(self, comic_id):
             return Comic(comic_id, "Fixture", "", (Chapter(1, "1", "One"),))
 
