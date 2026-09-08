@@ -1,6 +1,6 @@
 {
-  "allowed_user_ids": {"type": "list", "default": [], "description": "Allowed QQ user IDs (strings)", "hint": "Empty denies all requests except help. Groups require both user and group permission."},
-  "allowed_group_ids": {"type": "list", "default": [], "description": "Allowed QQ group IDs (strings)", "hint": "Empty disables group use."},
+  "blocked_user_ids": {"type": "list", "default": [], "description": "Blocked QQ user IDs (strings)", "hint": "Blocks content commands in private chats and all groups. Empty blocks nobody. Help and version remain available."},
+  "blocked_group_ids": {"type": "list", "default": [], "description": "Blocked QQ group IDs (strings)", "hint": "Blocks content commands for everyone in these groups. Empty blocks no groups. Help and version remain available."},
   "max_running": {"type": "int", "default": 1, "description": "Concurrent task processes (1–8)"},
   "max_queued": {"type": "int", "default": 3, "description": "Additional queued tasks (0 or more)"},
   "max_pending_per_user": {"type": "int", "default": 1, "description": "Running plus queued tasks per user"},

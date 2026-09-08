@@ -44,7 +44,8 @@ Copying source files is also supported. Include `main.py`, `metadata.yaml`,
 `_conf_schema.json`, `jm_comic_fetcher/`, `pyproject.toml` and `uv.lock`.
 Do not copy development virtual environments or runtime data between machines.
 
-Set the user/group allowlists in AstrBot's plugin configuration. See the README
+Content commands are allowed by default. Optionally set user/group blocklists in
+AstrBot's plugin configuration. See the README
 for commands and [Configuration](configuration.md) for limits.
 
 ## Runtime ownership and recovery

@@ -8,8 +8,8 @@ MIB = 1024 * 1024
 
 @dataclass(frozen=True)
 class Config:
-    allowed_user_ids: tuple[str, ...] = ()
-    allowed_group_ids: tuple[str, ...] = ()
+    blocked_user_ids: tuple[str, ...] = ()
+    blocked_group_ids: tuple[str, ...] = ()
     max_running: int = 1
     max_queued: int = 3
     max_pending_per_user: int = 1
@@ -43,7 +43,7 @@ class Config:
                 ):
                     raise UserError(f"Config {name} must be a list of strings.")
                 value = tuple(item.strip() for item in value if item.strip())
-                if name.startswith("allowed_") and any(
+                if name.startswith("blocked_") and any(
                     not x.isascii() or not x.isdigit() for x in value
                 ):
                     raise UserError(f"Config {name} must contain numeric IDs as strings.")
@@ -66,14 +66,14 @@ class Config:
         return config
 
     def authorize(self, user_id: str, group_id: str) -> None:
-        if user_id not in self.allowed_user_ids:
-            raise UserError("Access denied: your user ID is not allowlisted.")
-        if group_id and group_id not in self.allowed_group_ids:
-            raise UserError("Access denied: this group is not allowlisted.")
+        if user_id in self.blocked_user_ids:
+            raise UserError("Access denied: your user ID is blocked.")
+        if group_id and group_id in self.blocked_group_ids:
+            raise UserError("Access denied: this group is blocked.")
 
     def worker_config(self) -> dict:
         """Do not pass chat identities into the download process."""
         result = asdict(self)
-        result["allowed_user_ids"] = []
-        result["allowed_group_ids"] = []
+        result["blocked_user_ids"] = []
+        result["blocked_group_ids"] = []
         return result

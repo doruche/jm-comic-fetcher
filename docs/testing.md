@@ -56,8 +56,9 @@ no external deployment files are used. Use `--image` to check a specific image a
 
 ## QQ acceptance
 
-After deployment, add your QQ user ID to `allowed_user_ids`; add the test group
-to `allowed_group_ids` for group tests, then reload. Test private chat first.
+After deployment, content commands are allowed by default. Make sure your test
+user/group is not in `blocked_user_ids`/`blocked_group_ids`, then reload if changed.
+Test private chat first.
 Use the same wake prefix / bot mention that works for `/help`.
 
 1. `/jmcomic help` — English help, no network request.
@@ -70,11 +71,13 @@ Use the same wake prefix / bot mention that works for `/help`.
    For fetch and cover, check that the archive-ready notice reports downloaded
    MiB, elapsed seconds and average MiB/s before the attachment is sent. These
    figures exclude packing/upload time and need not match the ZIP size.
-6. Repeat an attachment send in the allowlisted group and open it on your phone.
+6. Repeat an attachment send in an unblocked group and open it on your phone.
 7. `/jmcomic random` — an ID, description and numbered chapter list, with no
    attachment. Inspect the returned ID with `inspect <comic_id> brief` and compare.
    Repeated draws may repeat an ID; sampling covers the reported latest-list range.
-8. Try a reversed range, missing argument and denied user/group (including random).
+8. Try a reversed range and missing argument. Block a test user and verify denial
+   in private chat and an unblocked group, including random. Block a test group
+   and verify denial for an otherwise unblocked user. Help/version remain public.
 
 Do not make full-book downloads part of the routine test cycle. Increasing a limit
 does not change the upstream's availability or the messaging platform's limits.

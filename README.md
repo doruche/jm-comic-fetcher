@@ -17,7 +17,7 @@ and currently supports OneBot/NapCat.
 /jmcomic fetch <comic_id> --from 2 --to 4
 ```
 
-- `version` shows the version, description, author and license name; no allowlist is required.
+- `version` shows the version, description, author and license name; help/version remain public.
 - `brief` returns the title, description and numbered chapter list.
 - `cover` returns the original cover image in a ZIP.
 - `fetch` returns one PDF per selected chapter, packed into one ZIP with a chapter index.
@@ -31,7 +31,7 @@ and currently supports OneBot/NapCat.
   a random discovery window, not a uniform sample of the whole site. No files are
   downloaded; use the returned ID with `inspect` or `fetch` to continue.
 
-Random uses the same allowlists, queue and timeouts as other content commands.
+Random uses the same blocklists, queue and timeouts as other content commands.
 It makes at most three draws, refreshing the list after stale/empty target pages
 or unavailable comics (including those without chapters). Network failures use
 the normal request retry policy. A missing or inconsistent initial total fails
@@ -73,11 +73,19 @@ is installed into AstrBot's Python environment.
 
 In the plugin's WebUI configuration:
 
-1. Add your QQ user ID to `allowed_user_ids`.
-2. For group use, also add the group ID to `allowed_group_ids`.
+1. Optionally add QQ user IDs to `blocked_user_ids` to block them in private chats and all groups.
+2. Optionally add group IDs to `blocked_group_ids` to block content commands in those groups.
 3. Save and reload the plugin.
 
-Empty allowlists deny content commands. Defaults allow one running task,
+Empty blocklists allow all content commands that reach the plugin through AstrBot.
+Help and version remain public, including for blocked users/groups. The plugin
+does not query friend lists or verify group membership; AstrBot's own access and
+wake rules still apply. Starting with v0.3.0, legacy `allowed_user_ids` and
+`allowed_group_ids` settings are ignored without migration. New blocklists default
+to empty, so upgrading from a whitelist configuration opens plugin access unless
+you configure blocks or restrict access in AstrBot.
+
+Defaults allow one running task,
 up to 10 selected chapters and a 100 MiB final ZIP. Other limits and network
 options are described in [Configuration](docs/configuration.md).
 

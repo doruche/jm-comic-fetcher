@@ -57,21 +57,53 @@ def test_english_help_and_lossless_chunking():
 
 
 def test_config_and_permissions():
-    config = Config.from_mapping({"allowed_user_ids": ["123"], "allowed_group_ids": ["456"]})
+    config = Config.from_mapping({"blocked_user_ids": ["999"], "blocked_group_ids": ["888"]})
     config.authorize("123", "")
     config.authorize("123", "456")
-    for user, group in [("999", "456"), ("123", "999")]:
+    for user, group in [("999", ""), ("999", "456"), ("123", "888"), ("999", "888")]:
         with pytest.raises(UserError):
             config.authorize(user, group)
     for values in [
         {"max_running": 0},
         {"max_pages": True},
         {"max_retries": 6},
-        {"allowed_user_ids": [123]},
+        {"blocked_user_ids": [123]},
+        {"blocked_group_ids": [456]},
+        {"blocked_user_ids": ["abc"]},
+        {"blocked_group_ids": ["１２３"]},
         {"proxy_url": "socks5://host"},
     ]:
         with pytest.raises(UserError):
             Config.from_mapping(values)
+
+
+def test_empty_blocklists_allow_private_and_group_content():
+    config = Config()
+    config.authorize("123", "")
+    config.authorize("123", "456")
+
+
+def test_legacy_allowlists_are_ignored_and_never_become_blocklists():
+    config = Config.from_mapping({"allowed_user_ids": ["123"], "allowed_group_ids": ["456"]})
+    assert config == Config()
+    for user in ("123", "999"):
+        for group in ("", "456", "888"):
+            config.authorize(user, group)
+    config = Config.from_mapping({"allowed_user_ids": ["123"], "blocked_user_ids": ["123"]})
+    with pytest.raises(UserError, match="blocked"):
+        config.authorize("123", "")
+
+
+def test_blocklists_are_normalized_and_not_sent_to_worker():
+    config = Config.from_mapping(
+        {"blocked_user_ids": [" 123 ", ""], "blocked_group_ids": [" 456 ", " "]}
+    )
+    assert config.blocked_user_ids == ("123",)
+    assert config.blocked_group_ids == ("456",)
+    worker = config.worker_config()
+    assert worker["blocked_user_ids"] == [] and worker["blocked_group_ids"] == []
+    assert Config.from_mapping(worker) == Config()
+    assert config.blocked_user_ids == ("123",)  # Export must not change host permissions.
 
 
 def test_schema_defaults_match_runtime():

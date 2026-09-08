@@ -4,12 +4,19 @@ Configure the plugin in AstrBot WebUI. `_conf_schema.json` declares defaults; th
 actual JSON configuration is maintained by AstrBot outside the source tree.
 Save and reload the plugin to apply changes. Each loaded instance uses immutable
 settings; running/queued jobs are cancelled on reload rather than silently changing
-their limits. Empty allowlists deny all content commands; help and version remain available.
+their limits. Empty blocklists allow content commands; help and version remain
+available even for blocked users/groups. A blocked user is denied in private chats
+and all groups; a blocked group denies every user's content commands in that group.
+The plugin does not verify QQ friendship or group membership. AstrBot's own access
+restrictions and wake rules continue to apply.
+
+Since v0.3.0, `allowed_user_ids` and `allowed_group_ids` are ignored, not migrated.
+Both new blocklists default to empty, including on upgrades from old configurations.
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
-| `allowed_user_ids` | `[]` | QQ user IDs as strings; required in private and group chats |
-| `allowed_group_ids` | `[]` | Additional group allowlist; groups require both checks |
+| `blocked_user_ids` | `[]` | QQ user IDs as strings; denied in private chats and all groups |
+| `blocked_group_ids` | `[]` | QQ group IDs as strings; denies content commands for everyone in these groups |
 | `max_running` | 1 | Concurrent task processes, maximum 8 |
 | `max_queued` | 3 | Additional waiting tasks; 0 disables extra queue capacity |
 | `max_pending_per_user` | 1 | Running + waiting tasks per QQ user |

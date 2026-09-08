@@ -1,6 +1,6 @@
 [project]
 name = "jm-comic-fetcher"
-version = "0.2.2"
+version = "0.3.0"
 description = "Query comic metadata and download selected chapters as PDF files in ZIP archives."
 authors = [{ name = "doruche" }]
 requires-python = ">=3.12,<3.15"
