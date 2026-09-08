@@ -1,4 +1,5 @@
 import asyncio
+import errno
 import os
 import signal
 import sys
@@ -18,8 +19,24 @@ async def until(predicate):
 def stopped(pid):
     try:
         return Path(f"/proc/{pid}/stat").read_text().split()[2] == "Z"
-    except FileNotFoundError:
+    except (FileNotFoundError, ProcessLookupError):
+        # procfs can report ENOENT on open or ESRCH on read if the process exits.
         return True
+
+
+@pytest.mark.parametrize("error_number", [errno.ENOENT, errno.ESRCH, errno.EACCES])
+def test_stopped_handles_process_disappearing_without_hiding_other_errors(
+    monkeypatch, error_number
+):
+    def read_text(path):
+        raise OSError(error_number, os.strerror(error_number))
+
+    monkeypatch.setattr(Path, "read_text", read_text)
+    if error_number == errno.EACCES:
+        with pytest.raises(PermissionError):
+            stopped(123)
+    else:
+        assert stopped(123)
 
 
 async def test_io_and_exit_code(tmp_path):
