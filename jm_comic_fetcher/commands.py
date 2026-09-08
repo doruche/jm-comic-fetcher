@@ -18,7 +18,8 @@ Ranges include both endpoints; --from and --to must be used together.
 Each chapter becomes one PDF; all PDFs are packed into one ordinary ZIP.
 Cover returns an ordinary ZIP containing the cover image.
 ZIP compression provides no encryption or detection protection.
-Random is not implemented yet."""
+Random returns an ID, description and chapter list sampled from the upstream's
+reported latest-list range (all categories); it does not download files."""
 
 
 def parse_command(raw: str) -> Request | None:

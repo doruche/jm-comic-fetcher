@@ -109,7 +109,8 @@ class TaskManager:
         try:
             async with asyncio.timeout(30):
                 await notify(
-                    f"Task {directory.name[:8]} accepted: {request.action} {request.comic_id}."
+                    f"Task {directory.name[:8]} accepted: "
+                    f"{request.action}{' ' + request.comic_id if request.comic_id else ''}."
                 )
             state.stage = "queue"
             async with self.slots:

@@ -33,9 +33,12 @@ class WorkerRequest:
         raw = value["request"]
         if not isinstance(raw, dict) or set(raw) != {"action", "comic_id", "start", "end"}:
             raise ProtocolError("Invalid content request fields")
-        if raw["action"] not in ("brief", "cover", "fetch"):
+        if raw["action"] not in ("brief", "cover", "fetch", "random"):
             raise ProtocolError("Invalid content action")
-        if not isinstance(raw["comic_id"], str) or not re.fullmatch(
+        if raw["action"] == "random":
+            if raw["comic_id"] != "":
+                raise ProtocolError("Random does not accept a comic ID")
+        elif not isinstance(raw["comic_id"], str) or not re.fullmatch(
             r"[1-9][0-9]{0,17}", raw["comic_id"]
         ):
             raise ProtocolError("Invalid comic ID")

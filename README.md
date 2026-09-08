@@ -9,6 +9,7 @@ and currently supports OneBot/NapCat.
 ```text
 /jmcomic help
 /jmcomic version
+/jmcomic random
 /jmcomic inspect <comic_id> brief
 /jmcomic inspect <comic_id> cover
 /jmcomic fetch <comic_id>
@@ -24,7 +25,18 @@ and currently supports OneBot/NapCat.
   use `0` to select all chapters, subject to configured limits.
 - Ranges include both endpoints. Supply both `--from` and `--to`; do not combine
   them with a positional chapter.
-- `/jmcomic random` is reserved but not implemented.
+- `random` returns an ID, description and numbered chapter list, like `inspect brief`.
+  It samples the upstream's reported latest-list range across all categories and
+  all time. The upstream caps its reported total (observed at 10,000), so this is
+  a random discovery window, not a uniform sample of the whole site. No files are
+  downloaded; use the returned ID with `inspect` or `fetch` to continue.
+
+Random uses the same allowlists, queue and timeouts as other content commands.
+It makes at most three draws, refreshing the list after stale/empty target pages
+or unavailable comics (including those without chapters). Network failures use
+the normal request retry policy. A missing or inconsistent initial total fails
+explicitly. Separate requests may
+return the same comic; there is no history or deduplication across tasks.
 
 A successful file-send result remains successful if its follow-up notification fails.
 If delivery cannot be confirmed, check the chat before retrying; sends are not

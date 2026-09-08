@@ -54,6 +54,30 @@ def test_worker_rejects_invalid_content_request(tmp_path, changes):
         WorkerRequest.from_dict(data)
 
 
+def test_random_worker_request_roundtrip(tmp_path):
+    job = WorkerRequest(Request("random", ""), Config(), tmp_path)
+    assert WorkerRequest.from_dict(job.to_dict()) == job
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"comic_id": "123"},
+        {"comic_id": None},
+        {"comic_id": 0},
+        {"start": 1, "end": 1},
+        {"action": "brief"},
+        {"action": "fetch"},
+        {"action": "cover"},
+    ],
+)
+def test_random_does_not_relax_other_worker_validation(tmp_path, changes):
+    data = WorkerRequest(Request("random", ""), Config(), tmp_path).to_dict()
+    data["request"].update(changes)
+    with pytest.raises(ProtocolError):
+        WorkerRequest.from_dict(data)
+
+
 def test_diagnostics_preserve_location_without_credentials(caplog):
     try:
         with phase("decode"):

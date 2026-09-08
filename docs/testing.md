@@ -68,7 +68,10 @@ Use the same wake prefix / bot mention that works for `/help`.
    exist; compare page order visually with the source.
 5. `/jmcomic inspect <comic_id> cover` — cover image inside a ZIP.
 6. Repeat an attachment send in the allowlisted group and open it on your phone.
-7. Try a reversed range, missing argument, denied user/group and `/jmcomic random`.
+7. `/jmcomic random` — an ID, description and numbered chapter list, with no
+   attachment. Inspect the returned ID with `inspect <comic_id> brief` and compare.
+   Repeated draws may repeat an ID; sampling covers the reported latest-list range.
+8. Try a reversed range, missing argument and denied user/group (including random).
 
 Do not make full-book downloads part of the routine test cycle. Increasing a limit
 does not change the upstream's availability or the messaging platform's limits.

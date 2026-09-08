@@ -25,6 +25,8 @@ def test_selection(args, selected):
     [
         "version extra",
         "version 123",
+        "random 123",
+        "random --from 1 --to 2",
         "fetch",
         "fetch ../a",
         "fetch 123 -1",
@@ -46,6 +48,8 @@ def test_invalid_command(args):
 def test_english_help_and_lossless_chunking():
     assert HELP.isascii()
     assert parse_command("help") is None
+    assert parse_command("random").action == "random"
+    assert parse_command("random").comic_id == ""
     text = "long title " * 900
     chunks = split_text(text)
     assert "".join(chunks) == text

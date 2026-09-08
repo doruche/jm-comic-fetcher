@@ -61,9 +61,6 @@ class JMComicFetcher(Star):
             self.settings.authorize(str(event.get_sender_id()), str(event.get_group_id() or ""))
             if event.get_platform_name() != "aiocqhttp":
                 raise UserError("This plugin currently supports OneBot/NapCat sessions only.")
-            if request.action == "random":
-                yield event.plain_result("Random is not implemented yet.")
-                return
             if not self._ready:
                 raise UserError("Plugin is initializing. Try again shortly.")
             session = event.unified_msg_origin

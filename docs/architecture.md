@@ -30,6 +30,16 @@ Background filesystem cleanup runs in an owned thread; unload waits for it befor
 a new instance can start. Removing an already-deleted directory is harmless.
 
 State is not resumed after reload.
+
+Random discovery runs inside the same task process. It queries the all-category,
+all-time latest list, measures the first page's actual size, and draws an item
+offset within the reported total. This avoids overweighting a short last page.
+The reported total can be capped even when deeper pages exist; discovery stays
+within that reported range. List updates between requests can shift positions.
+At most three draws (refreshing the first page each time) handle stale target
+pages, missing albums and albums without chapters. Other upstream errors propagate.
+Random returns the ordinary brief result and never starts image downloads.
+
 Images pass structural verification and complete pixel decoding (all frames),
 with pixel limits checked before decoding. Valid JPEG/PNG files can still be
 embedded without re-encoding. Failed/missing pages cancel remaining downloads and

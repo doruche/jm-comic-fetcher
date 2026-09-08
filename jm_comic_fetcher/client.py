@@ -1,8 +1,18 @@
 import asyncio
+import random
+import re
 from pathlib import Path
 
 import httpx
-from jmcomic import AsyncJmApiClient, JmcomicText, JmImageTool, JmModuleConfig, JmOption
+from jmcomic import (
+    AsyncJmApiClient,
+    JmcomicText,
+    JmImageTool,
+    JmMagicConstants,
+    JmModuleConfig,
+    JmOption,
+    MissingAlbumPhotoException,
+)
 from PIL import Image, ImageSequence
 
 from .config import MIB, Config
@@ -72,6 +82,48 @@ class Client:
                 Chapter(i, str(item.id), item.title.strip() or f"Chapter {i}")
                 for i, item in enumerate(album, 1)
             ),
+        )
+
+    async def random_comic(self) -> Comic:
+        """Sample the reported latest-list range, with bounded stale-result retries.
+
+        Use an item offset rather than choosing pages uniformly: a short final
+        page must not give its items a higher probability. The upstream may cap
+        its reported total, so this is not a sample of every album on the site.
+        """
+
+        async def listing(page: int):
+            return await self.api.categories_filter(
+                page=page,
+                time=JmMagicConstants.TIME_ALL,
+                category=JmMagicConstants.CATEGORY_ALL,
+                order_by=JmMagicConstants.ORDER_BY_LATEST,
+            )
+
+        for _ in range(3):
+            first = await listing(1)
+            total, page_size = first.total, len(first)
+            if total <= 0 or page_size == 0 or total < page_size:
+                raise UserError(
+                    "The upstream list has no usable total or entries. Try again later."
+                )
+            # Infer the actual page size; the library's page_size is a constant.
+            offset = random.randrange(total)
+            page, index = divmod(offset, page_size)
+            selected = first if page == 0 else await listing(page + 1)
+            if index >= len(selected) or offset >= selected.total:
+                continue  # The list changed or a deep page was empty; refresh and redraw.
+            comic_id = str(selected.content[index][0])
+            if not re.fullmatch(r"[1-9][0-9]{0,17}", comic_id):
+                raise UserError("The upstream list returned an invalid comic ID.")
+            try:
+                comic = await self.comic(comic_id)
+            except MissingAlbumPhotoException:
+                continue
+            if comic.chapters:
+                return comic
+        raise UserError(
+            "Could not find an available random comic after 3 attempts. Try again later."
         )
 
     async def chapter_images(self, chapter: Chapter) -> list[Page]:

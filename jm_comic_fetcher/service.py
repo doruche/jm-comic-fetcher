@@ -14,6 +14,7 @@ class ComicClient(Protocol):
     """page/cover return complete, validated image files owned by this job."""
 
     async def comic(self, comic_id: str) -> Comic: ...
+    async def random_comic(self) -> Comic: ...
     async def chapter_images(self, chapter: Chapter) -> list[Page]: ...
     async def page(self, detail: Page, path: Path) -> Path: ...
     async def cover(self, comic_id: str, directory: Path) -> Path: ...
@@ -23,8 +24,12 @@ async def execute(
     request: Request, config: Config, directory: Path, client: ComicClient
 ) -> WorkerResult:
     with phase("metadata"):
-        comic = await client.comic(request.comic_id)
-    if request.action == "brief":
+        comic = (
+            await client.random_comic()
+            if request.action == "random"
+            else await client.comic(request.comic_id)
+        )
+    if request.action in {"brief", "random"}:
         lines = [
             f"{comic.title}\nID: {comic.id}",
             f"Description: {comic.description or 'No description available.'}",

@@ -265,7 +265,8 @@ async def test_explicit_send_rejection(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize("fails", [False, True])
-async def test_brief_requires_result_notification(tmp_path, monkeypatch, fails):
+@pytest.mark.parametrize("job_request", [Request("brief", "123"), Request("random", "")])
+async def test_text_result_requires_notification(tmp_path, monkeypatch, fails, job_request):
     import json
 
     from jm_comic_fetcher.protocol import WorkerResult
@@ -278,7 +279,7 @@ async def test_brief_requires_result_notification(tmp_path, monkeypatch, fails):
 
     manager = tasks.TaskManager(Config(), Storage(tmp_path), Path(sys.executable))
     deliver = AsyncMock()
-    job = await manager.submit("1", Request("brief", "123"), notify, deliver)
+    job = await manager.submit("1", job_request, notify, deliver)
     await asyncio.gather(*manager.tasks)
     state = json.loads((manager.storage.jobs / job / "state.json").read_text())
     assert state["success"] is (not fails)
